@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Tailwind CSS output (generated from input.css)
+docs/styles/output.css
+
 # Playwright
 playwright-report/
 playwright/.cache/
@@ -12,14 +15,49 @@ test-results/
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+Desktop.ini
+ehthumbs.db
 
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
 
 # Large toolchain files (download separately)
 docs/assets/goscript.pack
+
+# Go build artifacts (if any local Go compilation)
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# WASM output from user compilations
+*.wasm
+
+# Package manager locks
+package-lock.json
+yarn.lock
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temp files
+*.tmp
+*.temp
+.cache/
