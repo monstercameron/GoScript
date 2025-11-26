@@ -130,8 +130,7 @@ func main() {
     </div>
     
     <!-- Load the bundled SDK (includes wasm_exec.js) -->
-    <script src="../dist/goscript.bundle.js"></script>
-    
+    <script src="assets/goscript.bundle.min.js"></script>
     <script>
         // Example programs
         const EXAMPLES = {
@@ -1472,8 +1471,14 @@ func main() {
             setStatus('idle', 'Initializing...');
             
             try {
+                // Use GitHub Releases for the large pack file
+                // For local dev, you can override with: ?pack=assets/goscript.pack
+                const urlParams = new URLSearchParams(window.location.search);
+                const packUrl = urlParams.get('pack') || 
+                    'https://github.com/monstercameron/GoScript/releases/latest/download/goscript.pack';
+                
                 gs = new GoScript({
-                    packUrl: 'assets/goscript.pack',
+                    packUrl: packUrl,
                     debug: true,
                     onProgress: (pct, msg) => {
                         // Silent init - no progress bar animation

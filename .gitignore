@@ -5,7 +5,7 @@ node_modules/
 dist/
 
 # Tailwind CSS output (generated from input.css)
-docs/styles/output.css
+# Note: docs/styles/output.css is tracked for GitHub Pages
 
 # Playwright
 playwright-report/
@@ -36,8 +36,9 @@ yarn-error.log*
 .env.local
 .env.*.local
 
-# Large toolchain files (download separately)
-docs/assets/goscript.pack
+# Large toolchain files (download separately or use release assets)
+# Note: docs/assets/goscript.pack needs to be downloaded separately for local dev
+# The SDK bundle (docs/assets/goscript.bundle.min.js) IS tracked for GitHub Pages
 
 # Go build artifacts (if any local Go compilation)
 *.exe
