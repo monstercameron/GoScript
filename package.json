@@ -1,0 +1,38 @@
+{
+  "name": "goscript",
+  "version": "1.0.0",
+  "description": "Run Go in the browser using WebAssembly. No server, no installation, no setup.",
+  "main": "dist/goscript.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "css": "npx @tailwindcss/cli -i ./docs/styles/input.css -o ./docs/styles/output.css",
+    "css:watch": "npx @tailwindcss/cli -i ./docs/styles/input.css -o ./docs/styles/output.css --watch",
+    "serve": "npx serve -l 3000 .",
+    "dev": "npm run css && npm run serve",
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui",
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "npx playwright test --debug"
+  },
+  "keywords": [
+    "go",
+    "golang",
+    "wasm",
+    "webassembly",
+    "compiler",
+    "browser"
+  ],
+  "author": "Earl Cameron",
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.57.0",
+    "@tailwindcss/cli": "^4.1.17",
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "serve": "^14.2.5",
+    "tailwindcss": "^4.1.17"
+  }
+}

@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* Tell Tailwind v4 where to scan for classes */
+@source "../**/*.html";
+@source "../**/*.js";
+
+/* CodeMirror customization */
+.CodeMirror {
+    height: 300px !important;
+    font-family: 'JetBrains Mono', 'Monaco', 'Consolas', monospace !important;
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+
+.CodeMirror-gutters {
+    background: #1e1e2e !important;
+    border-right: 1px solid #333 !important;
+}
+
+.CodeMirror-linenumber {
+    color: #666 !important;
+}
+
+/* Hide the original textarea (CodeMirror replaces it) */
+#source {
+    display: none;
+}

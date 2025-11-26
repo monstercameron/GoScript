@@ -1,55 +1,76 @@
-# GoScript - Browser-Based Go Compiler
+# GoScript
 
-Compile and run Go code directly in your browser using WebAssembly.
+**Run Go in the browser.** No server, no installation, no setup.
 
-## Project Structure
+GoScript brings the full Go compiler to your web browser using WebAssembly. Write Go code, hit run, and see it execute—all client-side.
 
+## What is this?
+
+GoScript is a complete Go development environment that runs entirely in your browser. It compiles the official Go toolchain (`cmd/compile` and `cmd/link`) to WebAssembly, giving you a real Go compiler without any backend infrastructure.
+
+This isn't a Go interpreter or a subset of Go—it's the actual Go compiler running in your browser tab.
+
+## What can you do with it?
+
+- **Learning & Education** — Teach Go without requiring students to install anything. Share a link and they're coding.
+- **Interactive Documentation** — Embed runnable Go examples in your docs, blog posts, or tutorials.
+- **Playgrounds** — Build your own Go playground for your library or framework.
+- **Offline Development** — Once loaded, everything runs locally. No internet required.
+- **Rapid Prototyping** — Quickly test Go snippets without context-switching to a terminal.
+
+## Quick Start
+
+```html
+<script src="dist/goscript.bundle.js"></script>
+<script>
+const gs = new GoScript({
+    packUrl: 'docs/assets/goscript.pack'
+});
+await gs.init();
+
+const result = await gs.compileAndRun(`
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("Hello from the browser!")
+}
+`);
+</script>
 ```
-GoScript/
-├── index.html              # Main UI entry point
-├── src/
-│   ├── main.js             # Application orchestrator
-│   ├── core/
-│   │   ├── virtual-fs.js   # In-memory virtual filesystem
-│   │   ├── fs-polyfill.js  # Node.js fs API bridge for Go WASM
-│   │   └── cache-manager.js # IndexedDB caching
-│   ├── compiler/
-│   │   ├── compilation-manager.js  # Go→WASM compilation pipeline
-│   │   └── github-fetcher.js       # Fetch Go source from GitHub
-│   └── runtime/
-│       ├── app-runner.js   # WASM execution environment
-│       └── wasm_exec.js    # Go's official WASM runtime support
-├── static/
-│   ├── bin/                # compile.wasm, link.wasm (compiler binaries)
-│   └── pkg/                # Precompiled Go standard library
-│       ├── index.json
-│       └── js_wasm/        # .a archives for js/wasm target
-└── tools/
-    ├── build-compiler.ps1  # Build Go compiler to WASM
-    ├── copy-std-lib.ps1    # Copy Go std library archives
-    └── generate-pkg-index.ps1  # Generate package index
+
+## SDK
+
+GoScript provides a clean JavaScript SDK for integration. See [docs/SDK.md](docs/SDK.md) for full documentation.
+
+```javascript
+const gs = new GoScript();
+gs.on('stdout', (text) => console.log(text));
+gs.on('stderr', (text) => console.error(text));
+
+await gs.init();
+await gs.loadToolchain('assets/goscript.pack');
+
+const { success, wasm, error } = await gs.compile('main.go', code);
+if (success) await gs.run(wasm);
 ```
 
 ## How It Works
 
-1.  **WASM Binaries**: The Go toolchain (`cmd/compile` and `cmd/link`) is compiled to WASM.
-2.  **Virtual Filesystem**: A JavaScript VFS stores source files and build artifacts.
-3.  **FS Polyfill**: The Node.js `fs` API is patched to redirect file operations to the VFS.
-4.  **Compilation Pipeline**:
-    *   Write Go source to VFS
-    *   Run `compile.wasm` to generate object files (`.o`)
-    *   Run `link.wasm` to generate the final executable (`.wasm`)
-    *   Execute the generated WASM in the browser
+1. The Go compiler and linker are compiled to WebAssembly (~50MB combined)
+2. The entire Go standard library is pre-compiled and bundled (~118MB)
+3. A virtual filesystem provides the file I/O that Go expects
+4. Your code compiles to WASM, then runs in a second WASM instance
 
-## Setup
-
-1.  Run `tools/build-compiler.ps1` to build the compiler and linker WASM binaries.
-2.  Run `tools/copy-std-lib.ps1` to copy standard library packages.
-3.  Run `tools/generate-pkg-index.ps1` to generate the package index.
-4.  Serve the directory with any HTTP server.
-5.  Open in browser and use `go run main.go` in the terminal.
+Everything is cached in IndexedDB after the first load for fast subsequent visits.
 
 ## Limitations
 
-*   **Performance**: The compiler binaries are large (~20MB each) and take time to load.
-*   **Standard Library**: Only packages in `static/pkg/js_wasm/` are available.
+- **Initial Load** — The toolchain is ~168MB. It's cached after the first load.
+- **Memory** — Compilation uses significant memory. Works best on desktop browsers.
+- **Packages** — Only the standard library is available. No `go get` for external packages (yet).
+
+## License
+
+MIT

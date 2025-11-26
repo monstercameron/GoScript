@@ -120,8 +120,48 @@ class CompilationManager {
      * @private
      */
     async loadCompiler() {
-        console.log('🔧 CompilationManager: Loading real Go WASM compiler...');
+        console.log('🔧 CompilationManager: Loading GoScript toolchain...');
         
+        try {
+            // Try to use packed toolchain first (single file with everything)
+            if (window.ToolchainLoader) {
+                console.log('📦 Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
+                this.toolchainLoader = new window.ToolchainLoader();
+                await this.toolchainLoader.load('static/goscript.pack');
+                
+                // Extract compiler and linker
+                this.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
+                this.linkWasmBytes = this.toolchainLoader.getLinkerWasm();
+                
+                // Set up filesystem interface for the compiler
+                this.setupCompilerFilesystem();
+                
+                // Load stdlib packages into VFS
+                this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
+                
+                const stats = this.toolchainLoader.getStats();
+                console.log(`✅ CompilationManager: Toolchain ready (${(stats.packSize / 1024 / 1024).toFixed(1)} MB total)`);
+                
+                this.compilerLoaded = true;
+                return;
+            }
+            
+            // Fallback: Load compiler and linker separately
+            console.log('⚠️ ToolchainLoader not available, loading files separately...');
+            await this.loadCompilerSeparately();
+            
+        } catch (error) {
+            console.error('❌ CompilationManager: Failed to load packed toolchain:', error);
+            // Fall back to separate loading
+            await this.loadCompilerSeparately();
+        }
+    }
+
+    /**
+     * Load compiler and linker separately (fallback)
+     * @private
+     */
+    async loadCompilerSeparately() {
         try {
             // Load the Go compiler WASM binary
             const compileResp = await fetch('static/bin/compile.wasm');
@@ -154,7 +194,7 @@ class CompilationManager {
     }
 
     /**
-     * Load standard library from packed archive
+     * Load standard library from packed archive (fallback when not using toolchain pack)
      * @private
      */
     async loadStdLib() {
