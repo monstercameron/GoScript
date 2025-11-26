@@ -7,10 +7,14 @@
     "doc": "docs"
   },
   "scripts": {
-    "css": "npx @tailwindcss/cli -i ./docs/styles/input.css -o ./docs/styles/output.css",
-    "css:watch": "npx @tailwindcss/cli -i ./docs/styles/input.css -o ./docs/styles/output.css --watch",
+    "build": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/build.ps1' : 'bash ./tools/build.sh', {stdio: 'inherit'})\"",
+    "build:toolchain": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/pack-toolchain.ps1' : 'bash ./tools/pack-toolchain.sh', {stdio: 'inherit'})\"",
+    "build:stdlib": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/pack-stdlib.ps1' : 'bash ./tools/pack-stdlib.sh', {stdio: 'inherit'})\"",
+    "build:compiler": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/build-compiler.ps1' : 'bash ./tools/build-compiler.sh', {stdio: 'inherit'})\"",
+    "css": "node ./node_modules/@tailwindcss/cli/dist/index.mjs -i ./docs/styles/input.css -o ./docs/styles/output.css",
+    "css:watch": "node ./node_modules/@tailwindcss/cli/dist/index.mjs -i ./docs/styles/input.css -o ./docs/styles/output.css --watch",
     "serve": "npx serve -l 3000 .",
-    "dev": "npm run css && npm run serve",
+    "dev": "npm run build && npm run css && npm run serve",
     "test": "npx playwright test",
     "test:ui": "npx playwright test --ui",
     "test:headed": "npx playwright test --headed",
