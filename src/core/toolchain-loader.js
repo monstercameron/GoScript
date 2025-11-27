@@ -22,7 +22,7 @@ class ToolchainLoader {
      * @param {string} url - URL to goscript.pack file
      * @returns {Promise<void>}
      */
-    async load(url = 'static/goscript.pack') {
+    async load(url = 'assets/goscript.pack') {
         console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
         
         const response = await fetch(url);

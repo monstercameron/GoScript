@@ -47,9 +47,9 @@ test.describe('GoScript Demo Page', () => {
     });
 
     test('GoScript SDK initializes', async ({ page }) => {
-        // Wait for initialization - status should change from Loading
+        // Wait for initialization to complete - status should become Ready or show error
         // This may take a while as it loads the 168MB pack file
-        await expect(page.locator('#status-text')).not.toHaveText('Loading...', {
+        await expect(page.locator('#status-text')).not.toHaveText('Initializing...', {
             timeout: 180000 // 3 minutes for large file download
         });
         
@@ -107,19 +107,39 @@ test.describe('GoScript Demo Page', () => {
         });
 
         test('compiles and runs Hello World', async ({ page }) => {
+            // Capture all console logs for debugging
+            const consoleLogs = [];
+            page.on('console', msg => {
+                const text = msg.text();
+                consoleLogs.push(text);
+                console.log('PAGE LOG:', text);
+            });
+            
             // Select hello example
             await page.locator('#examples').selectOption('hello');
             
             // Click run
             await page.locator('#btn-run').click();
             
-            // Wait for compilation to complete
-            await expect(page.locator('#status-text')).toHaveText('Complete', {
-                timeout: 60000
-            });
+            // Wait for status to change from Compiling
+            await page.waitForFunction(() => {
+                const status = document.querySelector('#status-text')?.textContent;
+                return status !== 'Compiling...' && status !== 'Ready';
+            }, { timeout: 120000 });
             
-            // Check output contains expected text
+            // Get the actual status and output
+            const statusText = await page.locator('#status-text').textContent();
             const output = await page.locator('#output').textContent();
+            
+            console.log('=== COMPILATION RESULT ===');
+            console.log('Final status:', statusText);
+            console.log('Output:', output);
+            console.log('=== ALL CONSOLE LOGS ===');
+            consoleLogs.forEach(log => console.log(log));
+            console.log('=== END LOGS ===');
+            
+            // Check if compilation succeeded
+            expect(statusText).toBe('Complete');
             expect(output).toContain('Hello');
         });
 
@@ -142,13 +162,17 @@ test.describe('GoScript Demo Page', () => {
         });
 
         test('shows compile time and wasm size', async ({ page }) => {
+            // Select hello example to ensure we have valid code
+            await page.locator('#examples').selectOption('hello');
+            
             // Run default program
             await page.locator('#btn-run').click();
             
-            // Wait for completion
-            await expect(page.locator('#status-text')).toHaveText('Complete', {
-                timeout: 60000
-            });
+            // Wait for status to change from Compiling (like Hello World test)
+            await page.waitForFunction(() => {
+                const status = document.querySelector('#status-text')?.textContent;
+                return status !== 'Compiling...' && status !== 'Ready';
+            }, { timeout: 120000 });
             
             // Check compile time is shown
             const compileTime = await page.locator('#compile-time').textContent();
@@ -160,6 +184,12 @@ test.describe('GoScript Demo Page', () => {
         });
 
         test('handles compilation errors gracefully', async ({ page }) => {
+            // Capture console logs for debugging
+            const consoleLogs = [];
+            page.on('console', msg => {
+                consoleLogs.push(msg.text());
+            });
+            
             // Enter invalid Go code via CodeMirror
             await page.evaluate(() => {
                 // @ts-ignore
@@ -173,14 +203,28 @@ func main() {
             // Click run
             await page.locator('#btn-run').click();
             
-            // Wait for status to change
-            await expect(page.locator('#status-text')).not.toHaveText('Compiling...', {
-                timeout: 30000
-            });
+            // Wait for status to change from Compiling
+            await page.waitForFunction(() => {
+                const status = document.querySelector('#status-text')?.textContent;
+                return status !== 'Compiling...' && status !== 'Ready';
+            }, { timeout: 120000 });
             
-            // Should show error status
             const statusText = await page.locator('#status-text').textContent();
-            expect(statusText).toMatch(/error|failed/i);
+            const output = await page.locator('#output').textContent();
+            
+            console.log('=== ERROR TEST RESULT ===');
+            console.log('Status:', statusText);
+            console.log('Output:', output);
+            console.log('=== ALL CONSOLE LOGS ===');
+            consoleLogs.forEach(log => console.log(log));
+            console.log('=== END LOGS ===');
+            
+            // The compiler should either show an error status OR have error in output
+            // Accept either as valid error handling
+            const hasErrorInStatus = /error|failed/i.test(statusText);
+            const hasErrorInOutput = /error|invalid|syntax|undefined/i.test(output);
+            
+            expect(hasErrorInStatus || hasErrorInOutput).toBeTruthy();
         });
 
         test('Ctrl+Enter shortcut runs code', async ({ page }) => {

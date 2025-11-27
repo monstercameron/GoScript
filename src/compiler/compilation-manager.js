@@ -127,7 +127,7 @@ class CompilationManager {
             if (window.ToolchainLoader) {
                 console.log('📦 Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
                 this.toolchainLoader = new window.ToolchainLoader();
-                await this.toolchainLoader.load('static/goscript.pack');
+                await this.toolchainLoader.load('assets/goscript.pack');
                 
                 // Extract compiler and linker
                 this.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
@@ -164,12 +164,12 @@ class CompilationManager {
     async loadCompilerSeparately() {
         try {
             // Load the Go compiler WASM binary
-            const compileResp = await fetch('static/bin/compile.wasm');
+            const compileResp = await fetch('assets/bin/compile.wasm');
             if (!compileResp.ok) throw new Error(`Failed to fetch compile.wasm: ${compileResp.status}`);
             this.compileWasmBytes = await compileResp.arrayBuffer();
             
             // Load the Go linker WASM binary
-            const linkResp = await fetch('static/bin/link.wasm');
+            const linkResp = await fetch('assets/bin/link.wasm');
             if (!linkResp.ok) throw new Error(`Failed to fetch link.wasm: ${linkResp.status}`);
             this.linkWasmBytes = await linkResp.arrayBuffer();
             
@@ -462,19 +462,46 @@ class CompilationManager {
         
         console.log(`📝 CompilationManager: Compiling ${tempFiles.length} file(s): ${tempFiles.join(', ')}`);
         
-        // 1. Compile (cmd/compile)
-        // go tool compile -o main.o -p main main.go ...
-        console.log('⚙️ CompilationManager: Running compile...');
-        const goCompile = new Go();
-        goCompile.argv = ['compile', '-o', '/tmp/main.o', '-p', 'main', '-complete', ...tempFiles];
-        goCompile.env = { 'GOOS': 'js', 'GOARCH': 'wasm', 'GOROOT': '/' };
+        // Debug: Check what's in VFS
+        console.log('📦 VFS Stats:', this.vfs.getStats());
+        console.log('📦 pkg/js_wasm contents:', this.vfs.listDir('/pkg/js_wasm').slice(0, 10));
         
-        const compileInstance = await WebAssembly.instantiate(this.compileWasmBytes, goCompile.importObject);
-        await goCompile.run(compileInstance.instance);
+        // Capture compiler output
+        let compilerOutput = [];
+        const originalAddConsoleOutput = window.addConsoleOutput;
+        window.addConsoleOutput = (text) => {
+            compilerOutput.push(text);
+            console.log('[COMPILER]', text);
+            if (originalAddConsoleOutput) originalAddConsoleOutput(text);
+        };
+        
+        try {
+            // 1. Compile (cmd/compile)
+            // go tool compile -o main.o -p main main.go ...
+            console.log('⚙️ CompilationManager: Running compile...');
+            console.log('⚙️ Args:', ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles]);
+            const goCompile = new Go();
+            goCompile.argv = ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles];
+            goCompile.env = { 'GOOS': 'js', 'GOARCH': 'wasm', 'GOROOT': '/' };
+            
+            const compileInstance = await WebAssembly.instantiate(this.compileWasmBytes, goCompile.importObject);
+            const compileExitPromise = goCompile.run(compileInstance.instance);
+            
+            // Check exit code
+            await compileExitPromise;
+            console.log('Compile exit code:', goCompile.exitCode);
+            
+            if (compilerOutput.length > 0) {
+                console.log('Compiler output:', compilerOutput.join('\n'));
+            }
+        } finally {
+            window.addConsoleOutput = originalAddConsoleOutput;
+        }
         
         // Check if main.o exists
         if (!this.vfs.exists('/tmp/main.o')) {
-            throw new Error("Compilation failed: main.o not created");
+            const errorMsg = compilerOutput.length > 0 ? compilerOutput.join('\n') : 'No output from compiler';
+            throw new Error(`Compilation failed: main.o not created. Compiler output: ${errorMsg}`);
         }
         
         // 2. Link (cmd/link)

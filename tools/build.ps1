@@ -30,6 +30,7 @@ $toolchainLoader = Get-Content (Join-Path $srcDir "core\toolchain-loader.js") -R
 $githubFetcher = Get-Content (Join-Path $srcDir "compiler\github-fetcher.js") -Raw
 $compilationManager = Get-Content (Join-Path $srcDir "compiler\compilation-manager.js") -Raw
 $appRunner = Get-Content (Join-Path $srcDir "runtime\app-runner.js") -Raw
+$goscriptSdk = Get-Content (Join-Path $srcDir "goscript-sdk.js") -Raw
 $main = Get-Content (Join-Path $srcDir "main.js") -Raw
 
 # Build combined SDK (all internal modules)
@@ -47,6 +48,8 @@ $githubFetcher
 $compilationManager
 
 $appRunner
+
+$goscriptSdk
 
 $main
 "@

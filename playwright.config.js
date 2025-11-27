@@ -10,7 +10,7 @@ module.exports = defineConfig({
     reporter: [['list'], ['html', { open: 'never' }]],
     
     use: {
-        baseURL: 'http://localhost:3000',
+        baseURL: 'http://127.0.0.1:5500',
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
     },
@@ -22,10 +22,11 @@ module.exports = defineConfig({
         },
     ],
 
-    webServer: {
-        command: 'npx serve -l 3000 .',
-        url: 'http://localhost:3000',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120 * 1000,
-    },
+    // Using VS Code Live Server - no webServer needed
+    // webServer: {
+    //     command: 'npx serve -l 3000 .',
+    //     url: 'http://localhost:3000',
+    //     reuseExistingServer: !process.env.CI,
+    //     timeout: 120 * 1000,
+    // },
 });
