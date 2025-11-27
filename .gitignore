@@ -36,9 +36,6 @@ yarn-error.log*
 .env.local
 .env.*.local
 
-# Large toolchain files (download separately)
-docs/assets/goscript.pack
-
 # Go build artifacts (if any local Go compilation)
 *.exe
 *.exe~
