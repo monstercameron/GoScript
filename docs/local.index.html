@@ -129,9 +129,6 @@ func main() {
         </div>
     </div>
     
-    <!-- Toast Container (must be before scripts that use it) -->
-    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
-    
     <!-- Load the bundled SDK (includes wasm_exec.js) -->
     <script src="../dist/goscript.bundle.js"></script>
     
@@ -1474,12 +1471,9 @@ func main() {
         async function init() {
             setStatus('idle', 'Initializing...');
             
-            // Show loading toast
-            const loadingToast = showToast('Loading GoScript toolchain (~168 MB)...', 'loading', 0);
-            
             try {
                 gs = new GoScript({
-                    packUrl: 'https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack',
+                    packUrl: 'assets/goscript.pack',
                     debug: true,
                     onProgress: (pct, msg) => {
                         // Silent init - no progress bar animation
@@ -1503,13 +1497,9 @@ func main() {
                 const stats = gs.getStats();
                 console.log('GoScript Stats:', stats);
                 
-                // Update toast to success
-                updateToast(loadingToast, 'GoScript toolchain ready! 🎉', 'success');
-                
             } catch (error) {
                 setStatus('error', `Failed: ${error.message}`);
                 console.error('Init failed:', error);
-                updateToast(loadingToast, `Failed to load toolchain: ${error.message}`, 'error');
             }
         }
 
@@ -1593,81 +1583,6 @@ func main() {
             }
             examplesEl.value = '';
         });
-
-        // Toast notification system
-        function showToast(message, type = 'info', duration = 4000) {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            
-            const colors = {
-                info: 'bg-slate-800 border-indigo-500',
-                success: 'bg-slate-800 border-emerald-500',
-                error: 'bg-slate-800 border-red-500',
-                loading: 'bg-slate-800 border-amber-500'
-            };
-            
-            const icons = {
-                info: 'ℹ️',
-                success: '✅',
-                error: '❌',
-                loading: '⏳'
-            };
-            
-            toast.className = `flex items-center gap-3 px-4 py-3 rounded-lg border-l-4 shadow-lg transform translate-x-full transition-transform duration-300 ${colors[type]}`;
-            toast.innerHTML = `
-                <span class="text-lg">${icons[type]}</span>
-                <span class="text-gray-100 text-sm font-medium">${message}</span>
-            `;
-            
-            container.appendChild(toast);
-            
-            // Animate in
-            requestAnimationFrame(() => {
-                toast.classList.remove('translate-x-full');
-                toast.classList.add('translate-x-0');
-            });
-            
-            // Auto dismiss (except loading toasts)
-            if (type !== 'loading' && duration > 0) {
-                setTimeout(() => dismissToast(toast), duration);
-            }
-            
-            return toast;
-        }
-        
-        function dismissToast(toast) {
-            toast.classList.remove('translate-x-0');
-            toast.classList.add('translate-x-full');
-            setTimeout(() => toast.remove(), 300);
-        }
-        
-        function updateToast(toast, message, type = 'success') {
-            const colors = {
-                info: 'border-indigo-500',
-                success: 'border-emerald-500',
-                error: 'border-red-500',
-                loading: 'border-amber-500'
-            };
-            
-            const icons = {
-                info: 'ℹ️',
-                success: '✅',
-                error: '❌',
-                loading: '⏳'
-            };
-            
-            // Update border color
-            toast.className = toast.className.replace(/border-(indigo|emerald|red|amber)-500/, colors[type]);
-            
-            // Update content
-            toast.innerHTML = `
-                <span class="text-lg">${icons[type]}</span>
-                <span class="text-gray-100 text-sm font-medium">${message}</span>
-            `;
-            
-            // Auto dismiss after update
-            setTimeout(() => dismissToast(toast), 3000);
-        }
 
         // Start
         init();

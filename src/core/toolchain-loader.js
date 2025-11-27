@@ -15,6 +15,90 @@ class ToolchainLoader {
         
         // Offsets for package data section
         this.packageDataStart = 0;
+        
+        // Cache configuration
+        this.dbName = 'GoScriptCache';
+        this.storeName = 'toolchain';
+        this.cacheVersion = 1;
+    }
+
+    /**
+     * Open IndexedDB connection
+     * @private
+     * @returns {Promise<IDBDatabase>}
+     */
+    async openDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, this.cacheVersion);
+            
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(this.storeName)) {
+                    db.createObjectStore(this.storeName);
+                }
+            };
+        });
+    }
+
+    /**
+     * Get cached pack data from IndexedDB
+     * @private
+     * @param {string} url - URL used as cache key
+     * @returns {Promise<ArrayBuffer|null>}
+     */
+    async getCached(url) {
+        try {
+            const db = await this.openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, 'readonly');
+                const store = tx.objectStore(this.storeName);
+                const request = store.get(url);
+                
+                request.onerror = () => {
+                    db.close();
+                    reject(request.error);
+                };
+                request.onsuccess = () => {
+                    db.close();
+                    resolve(request.result || null);
+                };
+            });
+        } catch (e) {
+            console.warn('📦 ToolchainLoader: IndexedDB not available, skipping cache');
+            return null;
+        }
+    }
+
+    /**
+     * Store pack data in IndexedDB
+     * @private
+     * @param {string} url - URL used as cache key
+     * @param {ArrayBuffer} data - Pack data to cache
+     * @returns {Promise<void>}
+     */
+    async setCache(url, data) {
+        try {
+            const db = await this.openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, 'readwrite');
+                const store = tx.objectStore(this.storeName);
+                const request = store.put(data, url);
+                
+                request.onerror = () => {
+                    db.close();
+                    reject(request.error);
+                };
+                request.onsuccess = () => {
+                    db.close();
+                    resolve();
+                };
+            });
+        } catch (e) {
+            console.warn('📦 ToolchainLoader: Failed to cache pack:', e.message);
+        }
     }
 
     /**
@@ -23,20 +107,61 @@ class ToolchainLoader {
      * @returns {Promise<void>}
      */
     async load(url = 'assets/goscript.pack') {
-        console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
+        // Try to load from IndexedDB cache first
+        console.log('📦 ToolchainLoader: Checking cache for GoScript toolchain...');
+        const cached = await this.getCached(url);
         
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to load goscript.pack: ${response.status}`);
+        if (cached) {
+            console.log(`✅ ToolchainLoader: Loaded from cache (${(cached.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+            this.packData = cached;
+        } else {
+            console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to load goscript.pack: ${response.status}`);
+            }
+            
+            this.packData = await response.arrayBuffer();
+            console.log(`📦 ToolchainLoader: Downloaded ${(this.packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
+            
+            // Cache for future use
+            console.log('💾 ToolchainLoader: Caching toolchain for future use...');
+            await this.setCache(url, this.packData);
+            console.log('✅ ToolchainLoader: Toolchain cached successfully');
         }
-        
-        this.packData = await response.arrayBuffer();
-        console.log(`📦 ToolchainLoader: Downloaded ${(this.packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
         
         this.parseToolchain();
         this.loaded = true;
         
         console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+    }
+
+    /**
+     * Clear the toolchain cache
+     * @returns {Promise<void>}
+     */
+    async clearCache() {
+        try {
+            const db = await this.openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, 'readwrite');
+                const store = tx.objectStore(this.storeName);
+                const request = store.clear();
+                
+                request.onerror = () => {
+                    db.close();
+                    reject(request.error);
+                };
+                request.onsuccess = () => {
+                    db.close();
+                    console.log('🗑️ ToolchainLoader: Cache cleared');
+                    resolve();
+                };
+            });
+        } catch (e) {
+            console.warn('📦 ToolchainLoader: Failed to clear cache:', e.message);
+        }
     }
 
     /**

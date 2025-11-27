@@ -10,7 +10,8 @@ module.exports = defineConfig({
     reporter: [['list'], ['html', { open: 'never' }]],
     
     use: {
-        baseURL: 'http://127.0.0.1:5500',
+        // GitHub Pages URL
+        baseURL: 'https://monstercameron.github.io/GoScript',
         trace: 'on-first-retry',
         screenshot: 'only-on-failure',
     },
@@ -22,11 +23,5 @@ module.exports = defineConfig({
         },
     ],
 
-    // Using VS Code Live Server - no webServer needed
-    // webServer: {
-    //     command: 'npx serve -l 3000 .',
-    //     url: 'http://localhost:3000',
-    //     reuseExistingServer: !process.env.CI,
-    //     timeout: 120 * 1000,
-    // },
+    // No webServer needed for GitHub Pages
 });
