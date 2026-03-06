@@ -26,13 +26,75 @@
             debug: 'text-violet-300'
         };
 
+        const categoryLabels = {
+            sdk: 'sdk',
+            init: 'init',
+            cache: 'cache',
+            compile: 'build',
+            run: 'run',
+            toolchain: 'pack',
+            vfs: 'vfs',
+            stats: 'stats',
+            app: 'app'
+        };
+
+        let lastSignature = null;
+        let lastRepeatCount = 1;
+        let lastRepeatBadge = null;
+
+        function formatBytes(byteLength) {
+            if (typeof byteLength !== 'number' || Number.isNaN(byteLength)) {
+                return String(byteLength);
+            }
+
+            if (byteLength < 1024) {
+                return `${byteLength} B`;
+            }
+
+            if (byteLength < 1024 * 1024) {
+                return `${(byteLength / 1024).toFixed(1)} KB`;
+            }
+
+            return `${(byteLength / 1024 / 1024).toFixed(1)} MB`;
+        }
+
+        function summarizeObject(value) {
+            if (Array.isArray(value)) {
+                const preview = value.slice(0, 4).map(stringifyPart).join(', ');
+                return value.length > 4 ? `[${preview}, +${value.length - 4} more]` : `[${preview}]`;
+            }
+
+            if (value instanceof ArrayBuffer) {
+                return `ArrayBuffer(${formatBytes(value.byteLength)})`;
+            }
+
+            if (ArrayBuffer.isView(value)) {
+                return `${value.constructor.name}(${formatBytes(value.byteLength)})`;
+            }
+
+            const entries = Object.entries(value);
+            const preview = entries.slice(0, 5).map(([key, entryValue]) => `${key}=${stringifyPart(entryValue)}`);
+            if (entries.length > 5) {
+                preview.push(`+${entries.length - 5} more`);
+            }
+            return `{${preview.join(', ')}}`;
+        }
+
         function stringifyPart(value) {
             if (value instanceof Error) {
-                return value.stack || value.message;
+                return value.message || String(value);
             }
 
             if (typeof value === 'string') {
                 return value;
+            }
+
+            if (typeof value === 'number' || typeof value === 'boolean' || value == null) {
+                return String(value);
+            }
+
+            if (typeof value === 'object') {
+                return summarizeObject(value);
             }
 
             try {
@@ -42,13 +104,127 @@
             }
         }
 
+        function cleanText(text) {
+            return text
+                .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function simplifyMessage(text) {
+            const clean = cleanText(text);
+            const rules = [
+                { pattern: /^\[GoScript\] Starting compilation\.\.\.$/i, category: 'sdk', message: 'build start' },
+                { pattern: /^\[GoScript\] Compilation complete in (\d+)ms$/i, category: 'sdk', message: (_, ms) => `build done in ${ms}ms` },
+                { pattern: /^\[GoScript\] Running compiled program\.\.\.$/i, category: 'sdk', message: 'run start' },
+                { pattern: /^\[GoScript\] Program execution complete$/i, category: 'sdk', message: 'run done' },
+                { pattern: /^\[GoScript\] Initialization failed: (.+)$/i, category: 'sdk', level: 'error', message: (_, reason) => `init failed: ${reason}` },
+                { pattern: /^\[Init\] (\d+)% - (.+)$/i, category: 'init', message: (_, pct, step) => `${pct}% ${step.toLowerCase()}` },
+                { pattern: /^ToolchainLoader: Checking cache for GoScript toolchain\.\.\.$/i, category: 'toolchain', message: 'check cached pack' },
+                { pattern: /^ToolchainLoader: Loaded from cache \((.+)\)$/i, category: 'toolchain', message: (_, size) => `use cached pack ${size}` },
+                { pattern: /^ToolchainLoader: Loaded from network \((.+)\)$/i, category: 'toolchain', message: (_, size) => `downloaded pack ${size}` },
+                { pattern: /^CacheManager: Found cached WASM for hash ([a-z0-9]+)$/i, category: 'cache', message: (_, hash) => `hit wasm ${hash}` },
+                { pattern: /^CacheManager: No cached WASM for hash ([a-z0-9]+)$/i, category: 'cache', message: (_, hash) => `miss wasm ${hash}` },
+                { pattern: /^CompilationManager: Using cached WASM binary$/i, category: 'compile', message: 'reuse cached wasm' },
+                { pattern: /^CompilationManager: Setting up build environment\.\.\.$/i, category: 'compile', message: 'prepare build env' },
+                { pattern: /^CompilationManager: Build environment ready$/i, category: 'compile', message: 'build env ready' },
+                { pattern: /^CompilationManager: Compiling Go to WASM using real Go compiler\.\.\.$/i, category: 'compile', message: 'compile with real go toolchain' },
+                { pattern: /^CompilationManager: Module: (.+)$/i, category: 'compile', message: (_, moduleName) => `module ${moduleName}` },
+                { pattern: /^CompilationManager: Compiling (\d+) Go files$/i, category: 'compile', message: (_, count) => `source set ${count} file${count === '1' ? '' : 's'}` },
+                { pattern: /^CompilationManager: Invoking real Go compiler\.\.\.$/i, category: 'compile', message: 'invoke compiler' },
+                { pattern: /^CompilationManager: Running compile\.\.\.$/i, category: 'compile', message: 'compile step' },
+                { pattern: /^CompilationManager: Running link\.\.\.$/i, category: 'compile', message: 'link step' },
+                { pattern: /^CompilationManager: Real compiler failed: (.+)$/i, category: 'compile', level: 'error', message: (_, reason) => `build failed: ${reason}` },
+                { pattern: /^AppRunner: Executing Console WASM binary \((\d+) bytes\)$/i, category: 'run', message: (_, bytes) => `load wasm ${formatBytes(Number(bytes))}` },
+                { pattern: /^AppRunner: Loading WASM module\.\.\.$/i, category: 'run', message: 'instantiate module' },
+                { pattern: /^AppRunner: WASM module loaded with Go runtime$/i, category: 'run', message: 'runtime ready' },
+                { pattern: /^AppRunner: Starting WASM application\.\.\.$/i, category: 'run', message: 'enter main' },
+                { pattern: /^AppRunner: Console application finished$/i, category: 'run', message: 'program exited cleanly' },
+                { pattern: /^Init failed: (.+)$/i, category: 'app', level: 'error', message: (_, reason) => `init failed: ${reason}` },
+                { pattern: /^Playground bootstrap failed: (.+)$/i, category: 'app', level: 'error', message: (_, reason) => `bootstrap failed: ${reason}` },
+                { pattern: /^GoScript Stats: (.+)$/i, category: 'stats', message: (_, stats) => stats }
+            ];
+
+            for (const rule of rules) {
+                const match = clean.match(rule.pattern);
+                if (!match) {
+                    continue;
+                }
+
+                return {
+                    category: rule.category,
+                    level: rule.level || null,
+                    message: typeof rule.message === 'function' ? rule.message(...match) : rule.message
+                };
+            }
+
+            const colonMatch = clean.match(/^(GoScript|ToolchainLoader|CacheManager|CompilationManager|AppRunner|VFS):\s*(.+)$/i);
+            if (colonMatch) {
+                const category = {
+                    GoScript: 'sdk',
+                    ToolchainLoader: 'toolchain',
+                    CacheManager: 'cache',
+                    CompilationManager: 'compile',
+                    AppRunner: 'run',
+                    VFS: 'vfs'
+                }[colonMatch[1]] || 'app';
+                return {
+                    category,
+                    level: null,
+                    message: colonMatch[2]
+                };
+            }
+
+            return {
+                category: 'app',
+                level: null,
+                message: clean
+            };
+        }
+
+        function toEntry(level, args) {
+            const primary = args.length === 1 ? stringifyPart(args[0]) : args.map(stringifyPart).join(' ');
+            const simplified = simplifyMessage(primary);
+            return {
+                level: simplified.level || level,
+                category: simplified.category,
+                message: simplified.message
+            };
+        }
+
+        function updateRepeatBadge() {
+            if (lastRepeatBadge) {
+                lastRepeatBadge.textContent = `x${lastRepeatCount}`;
+            }
+        }
+
+        function padLabel(text, width) {
+            const value = String(text || '');
+            if (value.length >= width) {
+                return value;
+            }
+            return value + ' '.repeat(width - value.length);
+        }
+
         function append(level, args) {
             if (!container) {
                 return;
             }
 
+            const entry = toEntry(level, args);
+            const signature = `${entry.level}|${entry.category}|${entry.message}`;
+            if (signature === lastSignature && lastRepeatBadge) {
+                lastRepeatCount += 1;
+                updateRepeatBadge();
+                container.scrollTop = container.scrollHeight;
+                return;
+            }
+
+            lastSignature = signature;
+            lastRepeatCount = 1;
+
             const line = document.createElement('div');
-            line.className = `font-mono text-xs leading-5 ${colors[level] || colors.log}`;
+            line.className = `font-mono text-xs leading-5 ${colors[entry.level] || colors.log}`;
             line.style.whiteSpace = 'pre-wrap';
             line.style.overflowWrap = 'anywhere';
             line.style.wordBreak = 'break-word';
@@ -60,9 +236,23 @@
                 second: '2-digit'
             });
 
-            const renderedArgs = args.map(stringifyPart).join(' ');
-            line.textContent = `[${timestamp}] ${level.toUpperCase()} ${renderedArgs}`;
+            const category = padLabel((categoryLabels[entry.category] || entry.category).toUpperCase(), 5);
+            const levelTag = entry.level === 'error'
+                ? 'ERR'
+                : entry.level === 'warn'
+                    ? 'WRN'
+                    : entry.level === 'debug'
+                        ? 'DBG'
+                        : '   ';
+            line.textContent = `[${timestamp}] ${levelTag} ${category} ${entry.message}`;
+
+            const repeatBadge = document.createElement('span');
+            repeatBadge.className = 'ml-2 text-slate-500';
+            repeatBadge.textContent = '';
+            line.appendChild(repeatBadge);
+
             container.appendChild(line);
+            lastRepeatBadge = repeatBadge;
             container.scrollTop = container.scrollHeight;
         }
 
@@ -85,6 +275,9 @@
                 if (container) {
                     container.textContent = '';
                 }
+                lastSignature = null;
+                lastRepeatCount = 1;
+                lastRepeatBadge = null;
             },
             log(...args) {
                 console.log(...args);

@@ -78,15 +78,12 @@ npm install goscript
 ```javascript
 import GoScript from 'goscript';
 
-const gs = new GoScript({
+const gs = await GoScript.create({
     packUrl: '/assets/goscript.pack',
-    onOutput: (text) => console.log(text)
+    stdout: (text) => console.log(text)
 });
 
-await gs.init();
-
-const { wasm } = await gs.compile(code);
-await gs.run(wasm);
+await gs.runCode(code);
 ```
 
 Notes:

@@ -8,7 +8,7 @@ Browser-based Go compiler using WebAssembly. Compile and run Go programs entirel
 - 📦 **Single file distribution** - Everything in one `goscript.pack` file (168 MB)
 - 🌐 **Pure browser execution** - No backend, no installation
 - 📚 **Full standard library** - fmt, net/http, encoding/json, crypto, and more
-- 🔧 **Simple API** - `init()`, `loadToolchain()`, `compile()`, `run()`, and `compileAndRun()`
+- 🔧 **Simple API** - `GoScript.create()`, `runCode()`, `build()`, and `run()`
 
 ## Quick Start
 
@@ -26,19 +26,17 @@ Browser-based Go compiler using WebAssembly. Compile and run Go programs entirel
 ### 2. Initialize and Run
 
 ```javascript
-const gs = new GoScript({
+const gs = await GoScript.create({
     packUrl: 'assets/goscript.pack',
-    onOutput: (text) => console.log(text)
+    stdout: (text) => console.log(text)
 });
 
-await gs.init();
-
-const result = await gs.compileAndRun(`
+const result = await gs.runCode(`
     package main
     import "fmt"
     func main() { fmt.Println("Hello from Go!") }
 `);
-console.log(result.success); // true
+console.log(result.compileTime);
 ```
 
 ## Installation
@@ -86,24 +84,65 @@ const gs = new GoScript(options);
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `packUrl` | `string` | `'assets/goscript.pack'` | URL to the toolchain pack file |
-| `onOutput` | `function` | `null` | Callback for stdout/stderr output |
-| `onError` | `function` | `null` | Callback for error messages |
-| `onProgress` | `function` | `null` | Callback for progress updates `(percentage, message)` |
+| `stdout` | `function` | `console.log` | Callback for program stdout |
+| `stderr` | `function` | `console.error` | Callback for errors |
+| `progress` | `function` | `noop` | Callback for progress updates `(percentage, message)` |
+| `onOutput` | `function` | alias | Legacy alias for `stdout` |
+| `onError` | `function` | alias | Legacy alias for `stderr` |
+| `onProgress` | `function` | alias | Legacy alias for `progress` |
 | `debug` | `boolean` | `false` | Enable debug logging |
 
 ### Methods
 
+#### `GoScript.create(options?)`
+
+Create and initialize the SDK in one step.
+
+```javascript
+const gs = await GoScript.create({
+    packUrl: '/assets/goscript.pack'
+});
+```
+
+#### `ready(packUrl?)`
+
+Initialize the SDK if needed and return the instance.
+
+```javascript
+await gs.ready();
+```
+
+#### `runCode(source)`
+
+Compile and run Go source in one step. This is the recommended starting point for new integrations.
+
+```javascript
+const result = await gs.runCode(`
+    package main
+    import "fmt"
+    func main() { fmt.Println("Hello!") }
+`);
+```
+
 #### `init()`
 
-Initialize the SDK. Must be called before compile/run.
+Legacy explicit initialization method. `ready()` or `GoScript.create()` are usually better starting points.
 
 ```javascript
 await gs.init();
 ```
 
+#### `build(source)`
+
+Compile Go source without running it.
+
+```javascript
+const result = await gs.build('package main\nfunc main() {}');
+```
+
 #### `compile(source, options?)`
 
-Compile Go source code to WebAssembly.
+Compatibility alias for explicit compile flow.
 
 ```javascript
 // Single file
@@ -131,6 +170,14 @@ Execute a compiled WebAssembly binary. If `wasm` is omitted, the SDK runs the la
 
 ```javascript
 await gs.run(compileResult.wasm);
+```
+
+#### `clearCompiledCache(source?)`
+
+Clear the compiled WASM cache for one source input.
+
+```javascript
+await gs.clearCompiledCache('package main\nfunc main() {}');
 ```
 
 #### `compileAndRun(source, options?)`

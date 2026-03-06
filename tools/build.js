@@ -49,6 +49,7 @@ const sdkOnly = `${banner}${runtimeContent}\n`;
 
 const packageExports = `
 export {
+    createGoScript,
     GoScript,
     VirtualFileSystem,
     FSPolyfill,
@@ -63,6 +64,7 @@ export default GoScript;
 
 const packageExportsCjs = `
 module.exports = {
+    createGoScript,
     GoScript,
     VirtualFileSystem,
     FSPolyfill,

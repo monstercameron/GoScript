@@ -7,8 +7,8 @@ The short version:
 1. Install the package
 2. Host `goscript.pack` somewhere your app can fetch it
 3. Import `GoScript`
-4. Call `init()`
-5. Compile and run Go source
+4. Create an initialized instance with `GoScript.create()`
+5. Call `runCode()`
 
 ## What You Need To Host
 
@@ -35,22 +35,20 @@ npm install goscript
 ```js
 import GoScript from 'goscript';
 
-const gs = new GoScript({
+const gs = await GoScript.create({
   packUrl: '/assets/goscript.pack',
-  onOutput: (text) => {
+  stdout: (text) => {
     console.log(text);
   },
-  onError: (error) => {
+  stderr: (error) => {
     console.error(error);
   },
-  onProgress: (percent, message) => {
+  progress: (percent, message) => {
     console.log(percent, message);
   }
 });
 
-await gs.init();
-
-const result = await gs.compileAndRun(`
+await gs.runCode(`
 package main
 
 import "fmt"
@@ -59,10 +57,6 @@ func main() {
     fmt.Println("Hello from GoScript")
 }
 `);
-
-if (!result.success) {
-  console.error(result.error);
-}
 ```
 
 ## Typical UI Wiring
@@ -75,36 +69,32 @@ const runButton = document.getElementById('run');
 const statusEl = document.getElementById('status');
 const sourceEl = document.getElementById('source');
 
-const gs = new GoScript({
+const gs = await GoScript.create({
   packUrl: '/assets/goscript.pack',
-  onOutput: (text) => {
+  stdout: (text) => {
     outputEl.textContent += text;
   },
-  onError: (error) => {
+  stderr: (error) => {
     outputEl.textContent += `Error: ${error}\n`;
   },
-  onProgress: (percent, message) => {
+  progress: (percent, message) => {
     statusEl.textContent = `${percent}% ${message}`;
   }
 });
 
-statusEl.textContent = 'Initializing toolchain...';
-await gs.init();
 statusEl.textContent = 'Ready';
 
 runButton.addEventListener('click', async () => {
   outputEl.textContent = '';
   statusEl.textContent = 'Compiling...';
 
-  const result = await gs.compileAndRun(sourceEl.value);
-
-  if (result.success) {
-    statusEl.textContent = `Done in ${result.compileResult.metadata.compileTime}ms`;
-    return;
+  try {
+    const result = await gs.runCode(sourceEl.value);
+    statusEl.textContent = `Done in ${result.compileTime}ms`;
+  } catch (error) {
+    statusEl.textContent = 'Failed';
+    outputEl.textContent += error.message;
   }
-
-  statusEl.textContent = 'Failed';
-  outputEl.textContent += result.error;
 });
 ```
 
@@ -128,6 +118,14 @@ const gs = new GoScript({
 });
 ```
 
+For the smallest obvious API, prefer:
+
+```js
+const gs = await GoScript.create({
+  packUrl: '/goscript.pack'
+});
+```
+
 ## React Example
 
 ```jsx
@@ -140,16 +138,13 @@ export function GoRunner() {
   const [output, setOutput] = useState('');
 
   useEffect(() => {
-    const gs = new GoScript({
+    GoScript.create({
       packUrl: '/goscript.pack',
-      onOutput: (text) => {
+      stdout: (text) => {
         setOutput((current) => current + text);
       }
-    });
-
-    sdkRef.current = gs;
-
-    gs.init().then(() => {
+    }).then((gs) => {
+      sdkRef.current = gs;
       setReady(true);
     }).catch((error) => {
       setOutput(`Init failed: ${error.message}`);
@@ -163,7 +158,8 @@ export function GoRunner() {
 
     setOutput('');
 
-    const result = await sdkRef.current.compileAndRun(`
+    try {
+      await sdkRef.current.runCode(`
 package main
 
 import "fmt"
@@ -172,9 +168,8 @@ func main() {
     fmt.Println("Hello from React")
 }
 `);
-
-    if (!result.success) {
-      setOutput(result.error);
+    } catch (error) {
+      setOutput(error.message);
     }
   }
 
@@ -209,10 +204,10 @@ packUrl: 'https://github.com/owner/repo/releases/download/tag/goscript.pack'
 
 ## Multiple Source Files
 
-`compile()` accepts either a string or a filename-to-source map.
+`build()` and `compile()` accept either a string or a filename-to-source map.
 
 ```js
-const result = await gs.compile({
+const result = await gs.build({
   'main.go': `
 package main
 
@@ -233,6 +228,18 @@ func hello() {
 
 await gs.run(result.wasm);
 ```
+
+## Recommended Public API
+
+For new integrations, start with these methods:
+
+- `GoScript.create(options)` - create and initialize in one step
+- `gs.runCode(source)` - compile and run source code
+- `gs.build(source)` - compile without running
+- `gs.run(wasm)` or `gs.runWasm(wasm)` - run an already-built binary
+- `gs.clearCompiledCache(source?)` - clear compiled cache for one source input
+
+Older compatibility methods like `init()`, `compile()`, and `compileAndRun()` still exist, but they are no longer the simplest path to start with.
 
 ## Cache Behavior
 
