@@ -431,6 +431,11 @@
         let lastWasmBinary = null;
         let currentExampleKey = null;
 
+        if (examples.hello && editor.getValue() === examples.hello) {
+            currentExampleKey = 'hello';
+            examplesEl.value = 'hello';
+        }
+
         function appendProgramOutput(text) {
             outputEl.textContent += text;
             outputEl.scrollTop = outputEl.scrollHeight;

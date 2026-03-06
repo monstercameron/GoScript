@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GoScript - Go in the Browser</title>
-    <!-- Tailwind CSS (compiled) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles/output.css">
-    <!-- CodeMirror -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
@@ -14,139 +15,138 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
 </head>
-<body class="bg-slate-900 text-gray-100 min-h-screen p-8 font-sans">
-    <div class="max-w-6xl mx-auto">
-        <!-- Header -->
-        <h1 class="text-4xl font-bold mb-2 bg-gradient-to-r from-indigo-500 to-cyan-500 bg-clip-text text-transparent">
-            🚀 GoScript
-        </h1>
-        <p class="text-gray-500 mb-8">Browser-based Go compiler using WebAssembly</p>
-        <div class="mb-4 rounded-lg border border-slate-700 bg-slate-800/80 overflow-hidden">
-            <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div class="min-w-0">
-                    <div class="text-sm font-semibold text-gray-200">Toolchain Pack</div>
-                    <div id="pack-panel-summary" class="text-xs text-gray-400">Manage pack download, local import, and the toolchain cache.</div>
+<body class="page-shell">
+    <div class="page-orb page-orb-a"></div>
+    <div class="page-orb page-orb-b"></div>
+    <div class="page-grid"></div>
+
+    <div class="page-frame">
+        <header class="hero-panel reveal reveal-1">
+            <div class="hero-copy">
+                <div class="hero-kicker">Browser-hosted Go toolchain</div>
+                <h1 class="hero-title">GoScript</h1>
+                <p class="hero-description">
+                    Compile real Go to WebAssembly in the browser, inspect the pipeline, and keep the toolchain cached locally.
+                </p>
+            </div>
+            <div class="hero-metrics">
+                <div class="metric-card">
+                    <span class="metric-label">Compiler Stack</span>
+                    <strong class="metric-value">Go compile + link</strong>
                 </div>
-                <button id="btn-toggle-pack-panel"
-                    class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold rounded transition-colors">
+                <div class="metric-card">
+                    <span class="metric-label">Pack Footprint</span>
+                    <strong class="metric-value">168 MB toolchain</strong>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">Execution Model</span>
+                    <strong class="metric-value">Local VFS + WASM</strong>
+                </div>
+            </div>
+        </header>
+
+        <section class="pack-card reveal reveal-2">
+            <div class="section-heading-row">
+                <div>
+                    <div class="section-title">Toolchain Pack</div>
+                    <div id="pack-panel-summary" class="section-subtitle">Manage pack download, local import, and the toolchain cache.</div>
+                </div>
+                <button id="btn-toggle-pack-panel" class="ghost-button">
                     Collapse
                 </button>
             </div>
-            <div id="pack-panel-body" class="border-t border-slate-700 px-4 py-4">
-                <div class="flex flex-wrap items-center gap-2">
+            <div id="pack-panel-body" class="pack-panel-body">
+                <div class="pack-actions">
                     <a id="pack-download-link"
                         href="https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack"
                         target="_blank"
                         rel="noopener noreferrer"
-                        class="px-4 py-3 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold rounded-lg transition-colors">
+                        class="action-button action-button-emerald">
                         Download goscript.pack
                     </a>
-                    <label for="pack-file"
-                        class="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg transition-colors cursor-pointer">
+                    <label for="pack-file" class="action-button action-button-slate action-label-button">
                         Choose Local Pack
                     </label>
                     <input id="pack-file" type="file" accept=".pack,application/octet-stream" class="hidden">
-                    <button id="btn-load-pack" disabled
-                        class="px-4 py-3 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors">
+                    <button id="btn-load-pack" disabled class="action-button action-button-cyan">
                         Load into Browser Cache
                     </button>
-                    <button id="btn-clear-pack-cache"
-                        class="px-4 py-3 bg-rose-700 hover:bg-rose-600 text-white font-semibold rounded-lg transition-colors">
+                    <button id="btn-clear-pack-cache" class="action-button action-button-rose">
                         Empty Toolchain Cache
                     </button>
                 </div>
-                <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400">
+                <div class="pack-meta-row">
                     <span id="pack-file-name">No local pack selected</span>
                     <span id="pack-source">Pack source: same-origin asset</span>
                     <span id="pack-cache-status">Toolchain cache: checking...</span>
                 </div>
             </div>
-        </div>
-        
-        <!-- Progress Bar -->
-        <div class="h-1 bg-gray-700 rounded overflow-hidden mb-4">
-            <div class="h-full bg-gradient-to-r from-indigo-500 to-cyan-500 transition-all duration-300" id="progress-bar" style="width: 0%"></div>
-        </div>
-        
-        <!-- Toolbar -->
-        <div class="flex flex-wrap gap-2 mb-4 items-center">
-            <button id="btn-run" disabled
-                class="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors">
-                Run
-            </button>
-            <button id="btn-clear"
-                class="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors">
-                Clear Output
-            </button>
-            <button id="btn-download" disabled
-                class="px-6 py-3 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors">
-                Download .wasm
-            </button>
-            <button id="btn-clear-wasm-cache"
-                class="px-6 py-3 bg-amber-700 hover:bg-amber-600 text-white font-semibold rounded-lg transition-colors">
-                Clear Current WASM Cache
-            </button>
-            
-            <!-- Examples Dropdown -->
-            <select id="examples"
-                class="px-4 py-3 bg-slate-800 text-gray-100 border border-gray-600 rounded-lg font-semibold cursor-pointer hover:bg-gray-700 hover:border-indigo-500 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 appearance-none bg-no-repeat pr-10"
-                style="background-image: url('data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 fill=%27%23888%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M8 11L3 6h10l-5 5z%27/%3E%3C/svg%3E'); background-position: right 0.75rem center;">
-                <option value="">Load Example...</option>
-                <optgroup label="Basics">
-                    <option value="hello">Hello World</option>
-                    <option value="variables">Variables & Types</option>
-                    <option value="constants">Constants</option>
-                    <option value="loops">Loops</option>
-                    <option value="conditionals">Conditionals</option>
-                </optgroup>
-                <optgroup label="Functions">
-                    <option value="functions">Functions</option>
-                    <option value="multireturn">Multiple Returns</option>
-                    <option value="variadic">Variadic Functions</option>
-                    <option value="closures">Closures</option>
-                    <option value="recursion">Recursion</option>
-                </optgroup>
-                <optgroup label="Data Structures">
-                    <option value="arrays">Arrays & Slices</option>
-                    <option value="maps">Maps</option>
-                    <option value="structs">Structs & Methods</option>
-                    <option value="interfaces">Interfaces</option>
-                    <option value="embedding">Struct Embedding</option>
-                </optgroup>
-                <optgroup label="Algorithms">
-                    <option value="fibonacci">Fibonacci</option>
-                    <option value="fizzbuzz">FizzBuzz</option>
-                    <option value="primes">Prime Numbers</option>
-                    <option value="factorial">Factorial</option>
-                    <option value="sorting">Sorting</option>
-                </optgroup>
-                <optgroup label="Advanced">
-                    <option value="goroutines">Goroutines</option>
-                    <option value="channels">Channels</option>
-                    <option value="timed_loop">10 Second Counter</option>
-                    <option value="select">Select Statement</option>
-                    <option value="json">JSON Encoding</option>
-                    <option value="errors">Error Handling</option>
-                </optgroup>
-            </select>
-            
-            <!-- Status -->
-            <div class="flex items-center gap-2 px-4 py-3 bg-slate-800 rounded-lg text-sm">
-                <div id="status-dot" class="w-2 h-2 rounded-full bg-gray-500"></div>
-                <span id="status-text">Loading...</span>
-            </div>
-        </div>
+        </section>
 
-        
-        <!-- Panels -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <!-- Editor Panel -->
-            <div class="bg-slate-950 border border-gray-700 rounded-lg overflow-hidden">
-                <div class="flex justify-between items-center px-4 py-3 bg-slate-800 text-gray-400 text-sm font-semibold">
-                    <span>📝 Go Source Code</span>
-                    <span id="compile-time" class="text-cyan-400"></span>
+        <section class="progress-shell reveal reveal-3">
+            <div class="progress-track">
+                <div id="progress-bar" class="progress-fill" style="width: 0%"></div>
+            </div>
+        </section>
+
+        <section class="toolbar-shell reveal reveal-3">
+            <div class="toolbar-row">
+                <button id="btn-run" disabled class="action-button action-button-indigo">Run</button>
+                <button id="btn-clear" class="action-button action-button-slate">Clear Output</button>
+                <button id="btn-download" disabled class="action-button action-button-cyan">Download .wasm</button>
+                <button id="btn-clear-wasm-cache" class="action-button action-button-amber">Clear Current WASM Cache</button>
+                <select id="examples" class="example-select">
+                    <optgroup label="Basics">
+                        <option value="hello" selected>Hello World</option>
+                        <option value="variables">Variables &amp; Types</option>
+                        <option value="constants">Constants</option>
+                        <option value="loops">Loops</option>
+                        <option value="conditionals">Conditionals</option>
+                    </optgroup>
+                    <optgroup label="Functions">
+                        <option value="functions">Functions</option>
+                        <option value="multireturn">Multiple Returns</option>
+                        <option value="variadic">Variadic Functions</option>
+                        <option value="closures">Closures</option>
+                        <option value="recursion">Recursion</option>
+                    </optgroup>
+                    <optgroup label="Data Structures">
+                        <option value="arrays">Arrays &amp; Slices</option>
+                        <option value="maps">Maps</option>
+                        <option value="structs">Structs &amp; Methods</option>
+                        <option value="interfaces">Interfaces</option>
+                        <option value="embedding">Struct Embedding</option>
+                    </optgroup>
+                    <optgroup label="Algorithms">
+                        <option value="fibonacci">Fibonacci</option>
+                        <option value="fizzbuzz">FizzBuzz</option>
+                        <option value="primes">Prime Numbers</option>
+                        <option value="factorial">Factorial</option>
+                        <option value="sorting">Sorting</option>
+                    </optgroup>
+                    <optgroup label="Advanced">
+                        <option value="goroutines">Goroutines</option>
+                        <option value="channels">Channels</option>
+                        <option value="timed_loop">10 Second Counter</option>
+                        <option value="select">Select Statement</option>
+                        <option value="json">JSON Encoding</option>
+                        <option value="errors">Error Handling</option>
+                    </optgroup>
+                </select>
+                <div class="status-pill">
+                    <div id="status-dot" class="status-dot"></div>
+                    <span id="status-text">Loading...</span>
                 </div>
-                <div class="rounded-b-lg overflow-hidden">
+            </div>
+        </section>
+
+        <section class="workspace-grid reveal reveal-4">
+            <article class="panel-card editor-card">
+                <div class="panel-header">
+                    <span class="panel-title">Go Source Code</span>
+                    <span id="compile-time" class="panel-metric"></span>
+                </div>
+                <div class="panel-body code-panel-body">
                     <textarea id="source" spellcheck="false">package main
 
 import "fmt"
@@ -156,40 +156,35 @@ func main() {
     fmt.Println("This code is compiled in your browser.")
 }</textarea>
                 </div>
-            </div>
-            
-            <!-- Output Panel -->
-            <div class="bg-slate-950 border border-gray-700 rounded-lg overflow-hidden">
-                <div class="flex justify-between items-center px-4 py-3 bg-slate-800 text-gray-400 text-sm font-semibold">
-                    <span>💻 Output</span>
-                    <span id="wasm-size" class="text-cyan-400"></span>
-                </div>
-                <div id="output" class="h-[300px] overflow-y-auto p-4 font-mono text-sm text-emerald-400 whitespace-pre-wrap"></div>
-            </div>
-        </div>
+            </article>
 
-        <div class="mb-4 bg-slate-950 border border-gray-700 rounded-lg overflow-hidden">
-            <div class="flex justify-between items-center px-4 py-3 bg-slate-800 text-gray-400 text-sm font-semibold">
-                <span>Terminal Log</span>
-                <button id="btn-clear-terminal"
-                    class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold rounded transition-colors">
-                    Clear Log
-                </button>
+            <article class="panel-card output-card">
+                <div class="panel-header">
+                    <span class="panel-title">Output</span>
+                    <span id="wasm-size" class="panel-metric"></span>
+                </div>
+                <div id="output" class="panel-body output-body"></div>
+            </article>
+        </section>
+
+        <section class="panel-card terminal-card reveal reveal-5">
+            <div class="panel-header">
+                <span class="panel-title">Terminal Log</span>
+                <button id="btn-clear-terminal" class="ghost-button">Clear Log</button>
             </div>
-            <div id="terminal-log" class="p-3 bg-black/40" style="height: 25rem; max-height: 25rem; overflow-y: auto; overflow-x: hidden;"></div>
-        </div>
-        
-        <!-- Info Box -->
-        <div class="bg-slate-800 p-4 rounded-lg text-sm text-gray-400">
-            <strong class="text-gray-300">How it works:</strong> GoScript packages the Go compiler (40 MB), linker (10 MB), and standard library (340 packages) 
-            into a single <code class="px-1.5 py-0.5 bg-slate-900 rounded text-emerald-400">goscript.pack</code> file. 
-            Your Go code is compiled to WebAssembly entirely in the browser - no server required!
-        </div>
+            <div id="terminal-log" class="terminal-body" style="height: 25rem; max-height: 25rem; overflow-y: auto; overflow-x: hidden;"></div>
+        </section>
+
+        <section class="info-banner reveal reveal-5">
+            <strong>How it works:</strong>
+            GoScript packages the Go compiler, linker, and standard library into a single
+            <code>goscript.pack</code> file. Your Go source is written into a virtual filesystem,
+            compiled in-browser, linked to <code>main.wasm</code>, and executed locally.
+        </section>
     </div>
-    
+
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
 
-    <!-- Load the bundled SDK (includes wasm_exec.js) -->
     <script src="../dist/goscript.bundle.js"></script>
     <script>
         window.GoScriptPlaygroundConfig = {
@@ -202,4 +197,3 @@ func main() {
     <script src="scripts/playground/app.js"></script>
 </body>
 </html>
-
