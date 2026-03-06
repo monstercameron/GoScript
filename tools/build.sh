@@ -59,6 +59,8 @@ BANNER="/**
     echo ""
     cat "$SRC_DIR/runtime/app-runner.js"
     echo ""
+    cat "$SRC_DIR/goscript-sdk.js"
+    echo ""
     cat "$SRC_DIR/main.js"
 } > "$DIST_DIR/goscript.bundle.js"
 
@@ -79,6 +81,8 @@ BANNER="/**
     cat "$SRC_DIR/compiler/compilation-manager.js"
     echo ""
     cat "$SRC_DIR/runtime/app-runner.js"
+    echo ""
+    cat "$SRC_DIR/goscript-sdk.js"
     echo ""
     cat "$SRC_DIR/main.js"
 } > "$DIST_DIR/goscript.js"
