@@ -13,13 +13,14 @@ class VirtualFileSystem {
     /**
      * Write file to virtual filesystem
      * @param {string} path - File path
-     * @param {string|Uint8Array} content - File content
+     * @param {string|Uint8Array|ArrayBuffer} content - File content
      */
     writeFile(path, content) {
         const normalizedPath = this.normalizePath(path);
-        this.files.set(normalizedPath, content);
+        const normalizedContent = content instanceof ArrayBuffer ? new Uint8Array(content) : content;
+        this.files.set(normalizedPath, normalizedContent);
         this.ensureDirectoryExists(this.getDirectory(normalizedPath));
-        console.log(`📝 VFS: Written ${normalizedPath} (${content.length} bytes)`);
+        console.log(`📝 VFS: Written ${normalizedPath} (${this.getContentSize(normalizedContent)} bytes)`);
     }
 
     /**
@@ -98,6 +99,78 @@ class VirtualFileSystem {
         const normalizedPath = this.normalizePath(path);
         this.directories.add(normalizedPath);
         console.log(`📁 VFS: Created directory ${normalizedPath}`);
+    }
+
+    /**
+     * Delete file from virtual filesystem
+     * @param {string} path - File path
+     */
+    unlink(path) {
+        const normalizedPath = this.normalizePath(path);
+        if (!this.files.has(normalizedPath)) {
+            throw this.createError('ENOENT', `File not found: ${normalizedPath}`);
+        }
+        this.files.delete(normalizedPath);
+    }
+
+    /**
+     * Remove an empty directory
+     * @param {string} path - Directory path
+     */
+    rmdir(path) {
+        const normalizedPath = this.normalizePath(path);
+        if (normalizedPath === '/') {
+            throw this.createError('EBUSY', 'Cannot remove root directory');
+        }
+        if (!this.directories.has(normalizedPath)) {
+            throw this.createError('ENOENT', `Directory not found: ${normalizedPath}`);
+        }
+        if (this.listDir(normalizedPath).length > 0) {
+            throw this.createError('ENOTEMPTY', `Directory not empty: ${normalizedPath}`);
+        }
+        this.directories.delete(normalizedPath);
+    }
+
+    /**
+     * Rename a file or directory
+     * @param {string} from - Existing path
+     * @param {string} to - New path
+     */
+    rename(from, to) {
+        const sourcePath = this.normalizePath(from);
+        const targetPath = this.normalizePath(to);
+
+        if (this.files.has(sourcePath)) {
+            const content = this.files.get(sourcePath);
+            this.files.delete(sourcePath);
+            this.writeFile(targetPath, content);
+            return;
+        }
+
+        if (!this.directories.has(sourcePath)) {
+            throw this.createError('ENOENT', `Path not found: ${sourcePath}`);
+        }
+
+        const updatedDirectories = new Set();
+        for (const dirPath of this.directories) {
+            if (dirPath === sourcePath || dirPath.startsWith(`${sourcePath}/`)) {
+                updatedDirectories.add(dirPath.replace(sourcePath, targetPath));
+            } else {
+                updatedDirectories.add(dirPath);
+            }
+        }
+        this.directories = updatedDirectories;
+
+        const updatedFiles = new Map();
+        for (const [filePath, content] of this.files.entries()) {
+            if (filePath.startsWith(`${sourcePath}/`)) {
+                updatedFiles.set(filePath.replace(sourcePath, targetPath), content);
+            } else {
+                updatedFiles.set(filePath, content);
+            }
+        }
+        this.files = updatedFiles;
+        this.ensureDirectoryExists(this.getDirectory(targetPath));
     }
 
     /**
@@ -245,6 +318,12 @@ class VirtualFileSystem {
         }
     }
 
+    createError(code, message) {
+        const error = new Error(message);
+        error.code = code;
+        return error;
+    }
+
     /**
      * Clear all files and directories
      */
@@ -263,8 +342,16 @@ class VirtualFileSystem {
             totalFiles: this.files.size,
             totalDirectories: this.directories.size,
             goFiles: this.getGoFiles().length,
-            totalSize: Array.from(this.files.values()).reduce((sum, content) => sum + content.length, 0)
+            totalSize: Array.from(this.files.values()).reduce((sum, content) => sum + this.getContentSize(content), 0)
         };
+    }
+
+    getContentSize(content) {
+        if (typeof content === 'string') {
+            return content.length;
+        }
+
+        return content?.byteLength ?? content?.length ?? 0;
     }
 }
 

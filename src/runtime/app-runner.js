@@ -11,6 +11,8 @@ class AppRunner {
         this.mountPoint = null;
         this.go = null; // Go runtime instance
         this.outputCallback = null;
+        this.allowMockExecution = false;
+        this.usingMockRuntime = false;
     }
 
     /**
@@ -28,6 +30,10 @@ class AppRunner {
      */
     setupFsPolyfill() {
         if (!window.fs) window.fs = {};
+        const baseFs = window.fs;
+        const originalWriteSync = typeof baseFs.writeSync === 'function' ? baseFs.writeSync.bind(baseFs) : null;
+        const originalWrite = typeof baseFs.write === 'function' ? baseFs.write.bind(baseFs) : null;
+        const originalOpen = typeof baseFs.open === 'function' ? baseFs.open.bind(baseFs) : null;
         
         const writeToOutput = (buf) => {
             if (this.outputCallback) {
@@ -42,25 +48,37 @@ class AppRunner {
                 writeToOutput(buf);
                 return buf.length;
             }
+
+            if (originalWriteSync) {
+                return originalWriteSync(fd, buf);
+            }
+
             return buf.length;
         };
         
         window.fs.write = (fd, buf, offset, length, position, callback) => {
-             if (fd === 1 || fd === 2) {
+            if (fd === 1 || fd === 2) {
                 writeToOutput(buf.subarray(offset, offset + length));
                 callback(null, length);
-            } else {
-                console.log("fs.write", fd);
-                callback(null, 0);
+                return;
             }
+
+            if (originalWrite) {
+                originalWrite(fd, buf, offset, length, position, callback);
+                return;
+            }
+
+            callback(null, length);
         };
         
-        if (!window.fs.open) {
-             window.fs.open = (path, flags, mode, callback) => {
-                // console.log("fs.open", path);
-                callback(null, 0);
-            };
-        }
+        window.fs.open = (path, flags, mode, callback) => {
+            if (originalOpen) {
+                originalOpen(path, flags, mode, callback);
+                return;
+            }
+
+            callback(null, 0);
+        };
     }
 
     /**
@@ -128,6 +146,9 @@ class AppRunner {
             const isMock = wasmBinary.byteLength < 10000;
             
             if (isMock) {
+                if (!this.allowMockExecution) {
+                    throw new Error('Mock WASM execution is disabled');
+                }
                 // For mock WASM, simulate the output based on source code
                 console.log('🎭 AppRunner: Using mock execution (compiler not available)');
                 await this.executeMockConsole(sourceCode);
@@ -136,6 +157,15 @@ class AppRunner {
             
             // Load and instantiate WASM module
             await this.loadWasmModule(wasmBinary);
+
+            if (this.usingMockRuntime) {
+                if (!this.allowMockExecution) {
+                    throw new Error('Mock runtime fallback is disabled');
+                }
+                await this.executeMockConsole(sourceCode);
+                this.isRunning = true;
+                return;
+            }
             
             // Run the WASM application
             await this.runWasmApplication(true);
@@ -256,13 +286,20 @@ class AppRunner {
             try {
                 this.wasmModule = await WebAssembly.instantiate(wasmBinary, this.go.importObject);
                 this.wasmInstance = this.wasmModule.instance;
+                this.usingMockRuntime = false;
                 console.log('✅ AppRunner: WASM module loaded with Go runtime');
             } catch (error) {
+                if (!this.allowMockExecution) {
+                    throw error;
+                }
                 console.warn('⚠️ AppRunner: Go runtime failed, falling back to mock');
                 await this.loadMockModule(wasmBinary);
             }
         } else {
             // Use mock implementation
+            if (!this.allowMockExecution) {
+                throw new Error('Go runtime is unavailable and mock execution is disabled');
+            }
             await this.loadMockModule(wasmBinary);
         }
     }
@@ -288,6 +325,7 @@ class AppRunner {
         };
         
         this.wasmInstance = this.wasmModule.instance;
+        this.usingMockRuntime = true;
         console.log('✅ AppRunner: Mock WASM module loaded');
     }
 
@@ -322,6 +360,16 @@ class AppRunner {
     async runWasmApplication(isConsole = false) {
         console.log('▶️ AppRunner: Starting WASM application...');
         
+        if (this.usingMockRuntime) {
+            if (!isConsole) {
+                this.renderMockApplication();
+                return;
+            }
+
+            console.warn('⚠️ AppRunner: Mock application skipped in console mode');
+            return;
+        }
+
         if (this.go) {
             // Run with Go runtime
             await this.go.run(this.wasmInstance);

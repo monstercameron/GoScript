@@ -237,21 +237,25 @@ class CacheManager {
         const cutoffTime = Date.now() - maxAge;
         const stores = ['sourceFiles', 'compiledWasm'];
         
-        for (const storeName of stores) {
+        await Promise.all(stores.map((storeName) => new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore('sourceFiles');
+            const store = transaction.objectStore(storeName);
             const index = store.index('timestamp');
-            
             const request = index.openCursor(IDBKeyRange.upperBound(cutoffTime));
-            
+
             request.onsuccess = (event) => {
                 const cursor = event.target.result;
                 if (cursor) {
                     cursor.delete();
                     cursor.continue();
+                    return;
                 }
+                resolve();
             };
-        }
+
+            request.onerror = () => reject(request.error || new Error(`Failed to clear ${storeName}`));
+            transaction.onerror = () => reject(transaction.error || new Error(`Failed to clear ${storeName}`));
+        })));
         
         console.log('✅ CacheManager: Old entries cleared');
     }
@@ -263,31 +267,37 @@ class CacheManager {
     async getStats() {
         if (!this.ready) await this.init();
         
-        const stats = {
-            sourceFiles: 0,
-            compiledWasm: 0,
-            totalSize: 0
+        const countStore = (storeName) => new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const items = [];
+            const request = store.openCursor();
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    items.push(cursor.value);
+                    cursor.continue();
+                    return;
+                }
+                resolve(items);
+            };
+
+            request.onerror = () => reject(request.error || new Error(`Failed to read ${storeName}`));
+            transaction.onerror = () => reject(transaction.error || new Error(`Failed to read ${storeName}`));
+        });
+
+        const [sourceFiles, compiledWasm] = await Promise.all([
+            countStore('sourceFiles'),
+            countStore('compiledWasm')
+        ]);
+
+        return {
+            sourceFiles: sourceFiles.length,
+            compiledWasm: compiledWasm.length,
+            totalSize: sourceFiles.reduce((sum, entry) => sum + (entry.size || 0), 0) +
+                compiledWasm.reduce((sum, entry) => sum + (entry.size || 0), 0)
         };
-        
-        const transaction = this.db.transaction(['sourceFiles', 'compiledWasm'], 'readonly');
-        
-        // Count source files
-        const sourceStore = transaction.objectStore('sourceFiles');
-        const sourceRequest = sourceStore.count();
-        
-        sourceRequest.onsuccess = (event) => {
-            stats.sourceFiles = event.target.result;
-        };
-        
-        // Count WASM files
-        const wasmStore = transaction.objectStore('compiledWasm');
-        const wasmRequest = wasmStore.count();
-        
-        wasmRequest.onsuccess = (event) => {
-            stats.compiledWasm = event.target.result;
-        };
-        
-        return stats;
     }
 
     /**

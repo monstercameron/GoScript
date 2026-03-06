@@ -1489,6 +1489,7 @@ func main() {
                 });
 
                 await gs.init();
+                window.gs = gs;
                 
                 gsInitialized = true;
                 setStatus('ready', 'Ready');

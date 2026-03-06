@@ -19,6 +19,7 @@ class GoScript {
         this.compilationManager = null;
         this.appRunner = null;
         this.lastWasmBinary = null;
+        this.lastSourceFiles = null;
         this.compileStartTime = 0;
     }
 
@@ -39,39 +40,7 @@ class GoScript {
             this.vfs = new VirtualFileSystem();
             this.options.onProgress(10, 'Fetching toolchain pack...');
 
-            // Load toolchain pack
-            this.toolchainLoader = new ToolchainLoader();
-            await this.toolchainLoader.load(this.options.packUrl);
-            this.options.onProgress(50, 'Toolchain loaded...');
-
-            // Create compilation manager
-            this.compilationManager = new CompilationManager();
-            
-            // Create cache manager
-            this.cacheManager = new CacheManager();
-            await this.cacheManager.init();
-            
-            // Initialize compilation manager with VFS and cache
-            this.compilationManager.init(this.vfs, this.cacheManager);
-            
-            // Setup filesystem polyfill for Go WASM
-            if (window.FSPolyfill) {
-                const polyfill = new FSPolyfill(this.vfs);
-                polyfill.patch();
-            }
-
-            // Load stdlib packages into VFS
-            this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
-            this.options.onProgress(80, 'Standard library loaded...');
-
-            // Store compiler and linker references
-            this.compilationManager.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
-            this.compilationManager.linkWasmBytes = this.toolchainLoader.getLinkerWasm();
-            this.compilationManager.compilerLoaded = true;
-
-            // Create app runner
-            this.appRunner = new AppRunner();
-            this.appRunner.init(this.vfs);
+            await this.loadToolchain(this.options.packUrl);
 
             this.options.onProgress(100, 'Ready');
             this.initialized = true;
@@ -98,9 +67,15 @@ class GoScript {
 
         try {
             // Prepare source files
-            const sourceFiles = {
-                'main.go': sourceCode
-            };
+            const sourceFiles = typeof sourceCode === 'string'
+                ? { 'main.go': sourceCode }
+                : sourceCode;
+
+            if (!sourceFiles || typeof sourceFiles !== 'object') {
+                throw new Error('compile() expects a Go source string or a filename-to-source map');
+            }
+
+            this.lastSourceFiles = sourceFiles;
 
             // Set up output capture
             const originalAddConsoleOutput = window.addConsoleOutput;
@@ -109,22 +84,23 @@ class GoScript {
                 if (originalAddConsoleOutput) originalAddConsoleOutput(text);
             };
 
-            // Run compilation
-            const wasmBinary = await this.compilationManager.compile(sourceFiles);
-            
-            // Restore output handler
-            window.addConsoleOutput = originalAddConsoleOutput;
+            try {
+                // Run compilation
+                const wasmBinary = await this.compilationManager.compile(sourceFiles);
 
-            const compileTime = Math.round(performance.now() - this.compileStartTime);
-            this.lastWasmBinary = wasmBinary;
+                const compileTime = Math.round(performance.now() - this.compileStartTime);
+                this.lastWasmBinary = wasmBinary;
 
-            this.log(`[GoScript] Compilation complete in ${compileTime}ms`);
+                this.log(`[GoScript] Compilation complete in ${compileTime}ms`);
 
-            return {
-                wasm: wasmBinary,
-                compileTime: compileTime,
-                size: wasmBinary.byteLength
-            };
+                return {
+                    wasm: wasmBinary,
+                    compileTime: compileTime,
+                    size: wasmBinary.byteLength
+                };
+            } finally {
+                window.addConsoleOutput = originalAddConsoleOutput;
+            }
 
         } catch (error) {
             this.log(`[GoScript] Compilation failed: ${error.message}`);
@@ -136,8 +112,8 @@ class GoScript {
      * Run the last compiled WebAssembly binary
      * @returns {Promise<void>}
      */
-    async run() {
-        if (!this.lastWasmBinary) {
+    async run(wasmBinary = this.lastWasmBinary) {
+        if (!wasmBinary) {
             throw new Error('No compiled binary available. Call compile() first.');
         }
 
@@ -149,7 +125,8 @@ class GoScript {
                 this.options.onOutput(text);
             });
 
-            await this.appRunner.executeConsole(this.lastWasmBinary);
+            const sourceCode = this.lastSourceFiles?.['main.go'] || null;
+            await this.appRunner.executeConsole(wasmBinary, sourceCode);
 
             this.log('[GoScript] Program execution complete');
 
@@ -220,6 +197,85 @@ class GoScript {
      */
     isReady() {
         return this.initialized;
+    }
+
+    getState() {
+        return {
+            initialized: this.initialized,
+            compilerReady: !!this.compilationManager?.compilerLoaded,
+            compiling: this.compilationManager?.getStatus() === 'compiling',
+            hasBinary: !!this.lastWasmBinary
+        };
+    }
+
+    hasPackage(name) {
+        return !!this.toolchainLoader?.hasPackage(name);
+    }
+
+    getPackages() {
+        return this.toolchainLoader?.getPackageNames() || [];
+    }
+
+    reset() {
+        this.lastWasmBinary = null;
+        this.lastSourceFiles = null;
+        this.vfs = new VirtualFileSystem();
+        if (window.FSPolyfill) {
+            const polyfill = new FSPolyfill(this.vfs);
+            polyfill.patch();
+        }
+        if (this.toolchainLoader) {
+            this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
+        }
+        if (this.compilationManager && this.cacheManager) {
+            this.compilationManager.init(this.vfs, this.cacheManager);
+            this.compilationManager.toolchainUrl = this.options.packUrl;
+            this.compilationManager.compileWasmBytes = this.toolchainLoader?.getCompilerWasm() || null;
+            this.compilationManager.linkWasmBytes = this.toolchainLoader?.getLinkerWasm() || null;
+            this.compilationManager.compilerLoaded = !!(this.compilationManager.compileWasmBytes && this.compilationManager.linkWasmBytes);
+        }
+    }
+
+    async loadToolchain(packUrl = this.options.packUrl) {
+        this.options.packUrl = packUrl;
+
+        if (!this.vfs) {
+            this.vfs = new VirtualFileSystem();
+        }
+
+        if (!this.toolchainLoader) {
+            this.toolchainLoader = new ToolchainLoader();
+        }
+        await this.toolchainLoader.load(packUrl);
+        this.options.onProgress(50, 'Toolchain loaded...');
+
+        if (!this.cacheManager) {
+            this.cacheManager = new CacheManager();
+            await this.cacheManager.init();
+        }
+
+        if (!this.compilationManager) {
+            this.compilationManager = new CompilationManager();
+        }
+        this.compilationManager.init(this.vfs, this.cacheManager);
+        this.compilationManager.toolchainUrl = packUrl;
+
+        if (window.FSPolyfill) {
+            const polyfill = new FSPolyfill(this.vfs);
+            polyfill.patch();
+        }
+
+        this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
+        this.options.onProgress(80, 'Standard library loaded...');
+
+        this.compilationManager.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
+        this.compilationManager.linkWasmBytes = this.toolchainLoader.getLinkerWasm();
+        this.compilationManager.compilerLoaded = true;
+
+        if (!this.appRunner) {
+            this.appRunner = new AppRunner();
+            await this.appRunner.init();
+        }
     }
 
     /**

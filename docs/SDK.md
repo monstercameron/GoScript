@@ -8,7 +8,7 @@ Browser-based Go compiler using WebAssembly. Compile and run Go programs entirel
 - 📦 **Single file distribution** - Everything in one `goscript.pack` file (168 MB)
 - 🌐 **Pure browser execution** - No backend, no installation
 - 📚 **Full standard library** - fmt, net/http, encoding/json, crypto, and more
-- 🔧 **Simple API** - Three methods: `init()`, `compile()`, `run()`
+- 🔧 **Simple API** - `init()`, `loadToolchain()`, `compile()`, `run()`, and `compileAndRun()`
 
 ## Quick Start
 
@@ -38,8 +38,7 @@ const result = await gs.compileAndRun(`
     import "fmt"
     func main() { fmt.Println("Hello from Go!") }
 `);
-
-console.log(result.output); // "Hello from Go!\n"
+console.log(result.success); // true
 ```
 
 ## Installation
@@ -108,36 +107,18 @@ const result = await gs.compile({
 **Returns:** `CompileResult`
 ```typescript
 {
-    success: boolean;
-    wasm?: ArrayBuffer;      // Compiled WASM (if successful)
-    error?: string;          // Error message (if failed)
-    metadata: {
-        compileTime: number; // Milliseconds
-        wasmSize: number;    // Bytes
-        sourceFiles: number;
-    }
+    wasm: ArrayBuffer;
+    compileTime: number; // Milliseconds
+    size: number;        // Bytes
 }
 ```
 
-#### `run(wasm, options?)`
+#### `run(wasm?)`
 
-Execute a compiled WebAssembly binary.
+Execute a compiled WebAssembly binary. If `wasm` is omitted, the SDK runs the last successful compile result.
 
 ```javascript
-const runResult = await gs.run(compileResult.wasm, {
-    args: ['arg1', 'arg2'],
-    env: { MY_VAR: 'value' }
-});
-```
-
-**Returns:** `RunResult`
-```typescript
-{
-    success: boolean;
-    output: string;     // Captured stdout
-    error?: string;     // Error message (if failed)
-    exitCode: number;
-}
+await gs.run(compileResult.wasm);
 ```
 
 #### `compileAndRun(source, options?)`
@@ -150,7 +131,22 @@ const result = await gs.compileAndRun(`
     import "fmt"
     func main() { fmt.Println("Hello!") }
 `);
-console.log(result.output); // "Hello!\n"
+console.log(result.success); // true
+```
+
+**Returns:** `CompileAndRunResult`
+```typescript
+{
+    success: boolean;
+    compileResult?: {
+        wasm: ArrayBuffer;
+        metadata: {
+            compileTime: number;
+            wasmSize: number;
+        };
+    };
+    error?: string;
+}
 ```
 
 #### `getState()`
@@ -213,8 +209,7 @@ const result = await gs.compileAndRun(`
         fmt.Println("Hello, World!")
     }
 `);
-
-console.log(result.output);
+console.log(result.success);
 ```
 
 ### With Progress Tracking
@@ -236,15 +231,16 @@ await gs.init();
 ### Error Handling
 
 ```javascript
-const result = await gs.compile(`
-    package main
-    func main() {
-        fmt.Println("Missing import!")
-    }
-`);
-
-if (!result.success) {
-    console.error('Compilation failed:', result.error);
+try {
+    const result = await gs.compile(`
+        package main
+        func main() {
+            fmt.Println("Missing import!")
+        }
+    `);
+    await gs.run(result.wasm);
+} catch (error) {
+    console.error('Compilation or execution failed:', error.message);
 }
 ```
 

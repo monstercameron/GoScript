@@ -265,17 +265,30 @@ class FSPolyfill {
             },
             
             unlink(path, callback) {
-                // Not implemented in VFS yet
-                callback(null);
+                try {
+                    self.vfs.unlink(path);
+                    callback(null);
+                } catch (e) {
+                    callback(e);
+                }
             },
             
             rename(from, to, callback) {
-                // Not implemented in VFS yet
-                callback(null);
+                try {
+                    self.vfs.rename(from, to);
+                    callback(null);
+                } catch (e) {
+                    callback(e);
+                }
             },
             
             rmdir(path, callback) {
-                callback(null);
+                try {
+                    self.vfs.rmdir(path);
+                    callback(null);
+                } catch (e) {
+                    callback(e);
+                }
             }
         };
 
@@ -283,7 +296,13 @@ class FSPolyfill {
         if (!globalThis.process) globalThis.process = {};
         globalThis.process.cwd = () => self.vfs.workingDirectory;
         globalThis.process.chdir = (path) => {
-            self.vfs.workingDirectory = path;
+            const normalizedPath = self.vfs.normalizePath(path);
+            if (normalizedPath !== '/' && !self.vfs.isDirectory(normalizedPath)) {
+                const err = new Error(`ENOENT: no such directory, chdir '${path}'`);
+                err.code = 'ENOENT';
+                throw err;
+            }
+            self.vfs.workingDirectory = normalizedPath;
         };
     }
 }

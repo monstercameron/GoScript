@@ -45,15 +45,14 @@ func main() {
 GoScript provides a clean JavaScript SDK for integration. See [docs/SDK.md](docs/SDK.md) for full documentation.
 
 ```javascript
-const gs = new GoScript();
-gs.on('stdout', (text) => console.log(text));
-gs.on('stderr', (text) => console.error(text));
+const gs = new GoScript({
+    onOutput: (text) => console.log(text)
+});
 
 await gs.init();
-await gs.loadToolchain('assets/goscript.pack');
 
-const { success, wasm, error } = await gs.compile('main.go', code);
-if (success) await gs.run(wasm);
+const { wasm } = await gs.compile(code);
+await gs.run(wasm);
 ```
 
 ## How It Works

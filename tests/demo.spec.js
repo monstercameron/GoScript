@@ -1,248 +1,194 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
 
+async function getEditorValue(page) {
+    return page.evaluate(() => {
+        // @ts-ignore
+        return document.querySelector('.CodeMirror').CodeMirror.getValue();
+    });
+}
+
+async function setEditorValue(page, value) {
+    await page.evaluate((source) => {
+        // @ts-ignore
+        document.querySelector('.CodeMirror').CodeMirror.setValue(source);
+    }, value);
+}
+
+async function runExample(page, example) {
+    await page.locator('#examples').selectOption(example);
+    await page.locator('#btn-run').click();
+}
+
 test.describe('GoScript Demo Page', () => {
-    
     test.beforeEach(async ({ page }) => {
-        // Navigate to the main page
-        await page.goto('/docs/index.html');
+        await page.goto('/docs/local.index.html');
     });
 
     test('page loads correctly', async ({ page }) => {
-        // Check title
         await expect(page).toHaveTitle('GoScript - Go in the Browser');
-        
-        // Check main heading
         await expect(page.locator('h1')).toContainText('GoScript');
-        
-        // Check subtitle
         await expect(page.locator('p.text-gray-500')).toContainText('Browser-based Go compiler');
     });
 
     test('UI elements are present', async ({ page }) => {
-        // Check buttons exist
         await expect(page.locator('#btn-run')).toBeVisible();
         await expect(page.locator('#btn-clear')).toBeVisible();
-        
-        // Check CodeMirror editor (replaces the textarea)
         await expect(page.locator('.CodeMirror')).toBeVisible();
-        
-        // Check output panel
         await expect(page.locator('#output')).toBeVisible();
-        
-        // Check examples dropdown
         await expect(page.locator('#examples')).toBeVisible();
     });
 
     test('default code is present', async ({ page }) => {
-        // CodeMirror replaces textarea, get value from CodeMirror
-        const value = await page.evaluate(() => {
-            // @ts-ignore
-            return document.querySelector('.CodeMirror').CodeMirror.getValue();
-        });
-        
+        const value = await getEditorValue(page);
+
         expect(value).toContain('package main');
         expect(value).toContain('import "fmt"');
         expect(value).toContain('fmt.Println');
     });
 
-    test('GoScript SDK initializes', async ({ page }) => {
-        // Wait for initialization to complete - status should become Ready or show error
-        // This may take a while as it loads the 168MB pack file
-        await expect(page.locator('#status-text')).not.toHaveText('Initializing...', {
-            timeout: 180000 // 3 minutes for large file download
+    test('GoScript SDK initializes locally', async ({ page }) => {
+        await expect(page.locator('#status-text')).toHaveText('Ready', {
+            timeout: 180000
         });
-        
-        // Check if it's ready or shows an error
-        const statusText = await page.locator('#status-text').textContent();
-        console.log('Status after init:', statusText);
-        
-        // Either ready or a specific error
-        const isReady = statusText === 'Ready';
-        const hasError = statusText?.includes('Failed');
-        
-        expect(isReady || hasError).toBeTruthy();
-        
-        if (isReady) {
-            // Run button should be enabled when ready
-            await expect(page.locator('#btn-run')).toBeEnabled();
-        }
+
+        await expect(page.locator('#btn-run')).toBeEnabled();
     });
 
     test('example programs load correctly', async ({ page }) => {
         const examples = ['hello', 'fibonacci', 'fizzbuzz', 'primes', 'structs'];
-        
+
         for (const example of examples) {
             await page.locator('#examples').selectOption(example);
-            
-            // Get value from CodeMirror
-            const source = await page.evaluate(() => {
-                // @ts-ignore
-                return document.querySelector('.CodeMirror').CodeMirror.getValue();
-            });
+            const source = await getEditorValue(page);
             expect(source).toContain('package main');
             expect(source.length).toBeGreaterThan(50);
         }
     });
 
     test('clear button works', async ({ page }) => {
-        // Add some text to output
-        await page.locator('#output').evaluate(el => {
+        await page.locator('#output').evaluate((el) => {
             el.textContent = 'Test output';
         });
-        
-        // Click clear
+
         await page.locator('#btn-clear').click();
-        
-        // Output should be empty
         await expect(page.locator('#output')).toHaveText('');
     });
 
     test.describe('with initialized SDK', () => {
         test.beforeEach(async ({ page }) => {
-            // Wait for SDK to be ready
             await expect(page.locator('#status-text')).toHaveText('Ready', {
                 timeout: 180000
             });
         });
 
-        test('compiles and runs Hello World', async ({ page }) => {
-            // Capture all console logs for debugging
-            const consoleLogs = [];
-            page.on('console', msg => {
-                const text = msg.text();
-                consoleLogs.push(text);
-                console.log('PAGE LOG:', text);
-            });
-            
-            // Select hello example
-            await page.locator('#examples').selectOption('hello');
-            
-            // Click run
-            await page.locator('#btn-run').click();
-            
-            // Wait for status to change from Compiling
-            await page.waitForFunction(() => {
-                const status = document.querySelector('#status-text')?.textContent;
-                return status !== 'Compiling...' && status !== 'Ready';
-            }, { timeout: 120000 });
-            
-            // Get the actual status and output
-            const statusText = await page.locator('#status-text').textContent();
-            const output = await page.locator('#output').textContent();
-            
-            console.log('=== COMPILATION RESULT ===');
-            console.log('Final status:', statusText);
-            console.log('Output:', output);
-            console.log('=== ALL CONSOLE LOGS ===');
-            consoleLogs.forEach(log => console.log(log));
-            console.log('=== END LOGS ===');
-            
-            // Check if compilation succeeded
-            expect(statusText).toBe('Complete');
-            expect(output).toContain('Hello');
-        });
+        test('compiles and runs Hello World with real execution output', async ({ page }) => {
+            await runExample(page, 'hello');
 
-        test('compiles and runs Fibonacci', async ({ page }) => {
-            // Select fibonacci example
-            await page.locator('#examples').selectOption('fibonacci');
-            
-            // Click run
-            await page.locator('#btn-run').click();
-            
-            // Wait for completion
             await expect(page.locator('#status-text')).toHaveText('Complete', {
-                timeout: 60000
+                timeout: 120000
             });
-            
-            // Check output
+
             const output = await page.locator('#output').textContent();
-            expect(output).toContain('Fibonacci');
-            expect(output).toContain('fib(');
+            const wasmSizeText = await page.locator('#wasm-size').textContent();
+            const wasmSizeKb = parseFloat((wasmSizeText || '0').replace('KB', '').trim());
+
+            expect(output).toContain('Hello, World!');
+            expect(output).toContain('Welcome to GoScript - Go in your browser!');
+            expect(output).not.toContain('Mock execution');
+            expect(wasmSizeKb).toBeGreaterThan(10);
         });
 
-        test('shows compile time and wasm size', async ({ page }) => {
-            // Select hello example to ensure we have valid code
-            await page.locator('#examples').selectOption('hello');
-            
-            // Run default program
-            await page.locator('#btn-run').click();
-            
-            // Wait for status to change from Compiling (like Hello World test)
-            await page.waitForFunction(() => {
-                const status = document.querySelector('#status-text')?.textContent;
-                return status !== 'Compiling...' && status !== 'Ready';
-            }, { timeout: 120000 });
-            
-            // Check compile time is shown
-            const compileTime = await page.locator('#compile-time').textContent();
-            expect(compileTime).toMatch(/\d+ms/);
-            
-            // Check wasm size is shown
-            const wasmSize = await page.locator('#wasm-size').textContent();
-            expect(wasmSize).toMatch(/[\d.]+ KB/);
-        });
+        test('compiles and runs Fibonacci with expected stdout', async ({ page }) => {
+            await runExample(page, 'fibonacci');
 
-        test('handles compilation errors gracefully', async ({ page }) => {
-            // Capture console logs for debugging
-            const consoleLogs = [];
-            page.on('console', msg => {
-                consoleLogs.push(msg.text());
+            await expect(page.locator('#status-text')).toHaveText('Complete', {
+                timeout: 120000
             });
-            
-            // Enter invalid Go code via CodeMirror
-            await page.evaluate(() => {
-                // @ts-ignore
-                document.querySelector('.CodeMirror').CodeMirror.setValue(`package main
+
+            const output = await page.locator('#output').textContent();
+            expect(output).toContain('Fibonacci Sequence:');
+            expect(output).toContain('fib(10) = 55');
+            expect(output).toContain('fib(14) = 377');
+        });
+
+        test('supports consecutive compile and run cycles in the same page session', async ({ page }) => {
+            await runExample(page, 'hello');
+
+            await expect(page.locator('#status-text')).toHaveText('Complete', {
+                timeout: 120000
+            });
+            await expect(page.locator('#output')).toContainText('Hello, World!');
+
+            await runExample(page, 'fibonacci');
+
+            await expect(page.locator('#status-text')).toHaveText('Complete', {
+                timeout: 120000
+            });
+            await expect(page.locator('#output')).toContainText('fib(14) = 377');
+        });
+
+        test('shows compile time and a non-trivial wasm size', async ({ page }) => {
+            await runExample(page, 'hello');
+
+            await expect(page.locator('#status-text')).toHaveText('Complete', {
+                timeout: 120000
+            });
+
+            const compileTime = await page.locator('#compile-time').textContent();
+            const wasmSize = await page.locator('#wasm-size').textContent();
+            const wasmSizeKb = parseFloat((wasmSize || '0').replace('KB', '').trim());
+
+            expect(compileTime).toMatch(/\d+ms/);
+            expect(wasmSize).toMatch(/[\d.]+ KB/);
+            expect(wasmSizeKb).toBeGreaterThan(10);
+        });
+
+        test('invalid Go code fails compilation instead of reporting success', async ({ page }) => {
+            await setEditorValue(page, `package main
 
 func main() {
     invalidSyntax here!!!
 }`);
-            });
-            
-            // Click run
+
             await page.locator('#btn-run').click();
-            
-            // Wait for status to change from Compiling
-            await page.waitForFunction(() => {
-                const status = document.querySelector('#status-text')?.textContent;
-                return status !== 'Compiling...' && status !== 'Ready';
-            }, { timeout: 120000 });
-            
-            const statusText = await page.locator('#status-text').textContent();
+
+            await expect(page.locator('#status-text')).toHaveText('Compilation failed', {
+                timeout: 120000
+            });
+
             const output = await page.locator('#output').textContent();
-            
-            console.log('=== ERROR TEST RESULT ===');
-            console.log('Status:', statusText);
-            console.log('Output:', output);
-            console.log('=== ALL CONSOLE LOGS ===');
-            consoleLogs.forEach(log => console.log(log));
-            console.log('=== END LOGS ===');
-            
-            // The compiler should either show an error status OR have error in output
-            // Accept either as valid error handling
-            const hasErrorInStatus = /error|failed/i.test(statusText);
-            const hasErrorInOutput = /error|invalid|syntax|undefined/i.test(output);
-            
-            expect(hasErrorInStatus || hasErrorInOutput).toBeTruthy();
+            expect(output).toMatch(/error|syntax|invalid|expected/i);
+        });
+
+        test('tiny fake wasm is rejected in production execution mode', async ({ page }) => {
+            const result = await page.evaluate(async () => {
+                const runner = new AppRunner();
+                await runner.init();
+
+                try {
+                    await runner.executeConsole(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]).buffer, 'package main');
+                    return { ok: true, error: null };
+                } catch (error) {
+                    return { ok: false, error: error.message };
+                }
+            });
+
+            expect(result.ok).toBeFalsy();
+            expect(result.error).toMatch(/disabled/i);
         });
 
         test('Ctrl+Enter shortcut runs code', async ({ page }) => {
-            // Ensure we have valid code
             await page.locator('#examples').selectOption('hello');
-            
-            // Focus the CodeMirror editor and press Ctrl+Enter
             await page.locator('.CodeMirror').click();
             await page.keyboard.press('Control+Enter');
-            
-            // Wait for completion
+
             await expect(page.locator('#status-text')).toHaveText('Complete', {
-                timeout: 60000
+                timeout: 120000
             });
-            
-            // Verify output
+
             const output = await page.locator('#output').textContent();
-            expect(output).toContain('Hello');
+            expect(output).toContain('Hello, World!');
         });
     });
 });

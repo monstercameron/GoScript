@@ -8,6 +8,8 @@ class CompilationManager {
         this.vfs = null;
         this.cacheManager = null;
         this.compilerLoaded = false;
+        this.allowMockFallback = false;
+        this.toolchainUrl = 'assets/goscript.pack';
         this.status = 'idle';
         this.callbacks = {
             onProgress: null,
@@ -51,7 +53,9 @@ class CompilationManager {
             
             // Stage 1: Load Go compiler
             this.emitStageUpdate(1, 'active');
-            await this.loadCompiler();
+            if (!this.compilerLoaded || !this.compileWasmBytes || !this.linkWasmBytes) {
+                await this.loadCompiler();
+            }
             this.emitStageUpdate(1, 'complete');
             this.emitProgress(15, 'COMPILER_READY');
             
@@ -127,7 +131,7 @@ class CompilationManager {
             if (window.ToolchainLoader) {
                 console.log('📦 Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
                 this.toolchainLoader = new window.ToolchainLoader();
-                await this.toolchainLoader.load('assets/goscript.pack');
+                await this.toolchainLoader.load(this.toolchainUrl);
                 
                 // Extract compiler and linker
                 this.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
@@ -186,10 +190,7 @@ class CompilationManager {
             
         } catch (error) {
             console.error('❌ CompilationManager: Failed to load Go compiler:', error);
-            // Fall back to mock implementation
-            await this.delay(500);
-            this.compilerLoaded = true;
-            console.log('⚠️ CompilationManager: Using fallback mock compiler');
+            throw error;
         }
     }
 
@@ -312,12 +313,18 @@ class CompilationManager {
                 return wasmBinary;
                 
             } catch (error) {
-                console.warn(`⚠️ CompilationManager: Real compiler failed, using fallback: ${error.message}`);
+                console.warn(`⚠️ CompilationManager: Real compiler failed: ${error.message}`);
                 console.error(error);
-                // Fall back to mock if real compilation fails
+                if (!this.allowMockFallback) {
+                    throw error;
+                }
             }
         }
         
+        if (!this.allowMockFallback) {
+            throw new Error('Go compiler is not available');
+        }
+
         // Fallback: Simulate compilation time and generate mock WASM
         const compilationTime = Math.max(1000, goFiles.length * 200);
         await this.delay(compilationTime);
@@ -445,6 +452,10 @@ class CompilationManager {
      */
     async runGoCompiler() {
         console.log('⚙️ CompilationManager: Invoking real Go compiler...');
+
+        if (typeof Go === 'undefined') {
+            throw new Error('wasm_exec.js is not loaded');
+        }
         
         // Only compile the specific files passed to compile(), not all files in VFS
         const filesToCompile = Object.keys(this.filesToCompile || {});
@@ -481,6 +492,12 @@ class CompilationManager {
             console.log('⚙️ CompilationManager: Running compile...');
             console.log('⚙️ Args:', ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles]);
             const goCompile = new Go();
+            goCompile.exitCode = 0;
+            const originalCompileExit = goCompile.exit.bind(goCompile);
+            goCompile.exit = (code) => {
+                goCompile.exitCode = code;
+                originalCompileExit(code);
+            };
             goCompile.argv = ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles];
             goCompile.env = { 'GOOS': 'js', 'GOARCH': 'wasm', 'GOROOT': '/' };
             
@@ -493,6 +510,11 @@ class CompilationManager {
             
             if (compilerOutput.length > 0) {
                 console.log('Compiler output:', compilerOutput.join('\n'));
+            }
+
+            if (goCompile.exitCode !== 0) {
+                const errorMsg = compilerOutput.length > 0 ? compilerOutput.join('\n') : `compiler exited with code ${goCompile.exitCode}`;
+                throw new Error(`Compilation failed: ${errorMsg}`);
             }
         } finally {
             window.addConsoleOutput = originalAddConsoleOutput;
@@ -508,11 +530,21 @@ class CompilationManager {
         // go tool link -o main.wasm main.o
         console.log('⚙️ CompilationManager: Running link...');
         const goLink = new Go();
+        goLink.exitCode = 0;
+        const originalLinkExit = goLink.exit.bind(goLink);
+        goLink.exit = (code) => {
+            goLink.exitCode = code;
+            originalLinkExit(code);
+        };
         goLink.argv = ['link', '-o', '/tmp/main.wasm', '-L', '/pkg/js_wasm', '/tmp/main.o'];
         goLink.env = { 'GOOS': 'js', 'GOARCH': 'wasm', 'GOROOT': '/' };
         
         const linkInstance = await WebAssembly.instantiate(this.linkWasmBytes, goLink.importObject);
         await goLink.run(linkInstance.instance);
+
+        if (goLink.exitCode !== 0) {
+            throw new Error(`Linking failed with exit code ${goLink.exitCode}`);
+        }
         
         // Read output
         if (!this.vfs.exists('/tmp/main.wasm')) {
