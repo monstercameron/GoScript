@@ -34,6 +34,10 @@ test.describe('GoScript Demo Page', () => {
     test('UI elements are present', async ({ page }) => {
         await expect(page.locator('#btn-run')).toBeVisible();
         await expect(page.locator('#btn-clear')).toBeVisible();
+        await expect(page.locator('#pack-download-link')).toBeVisible();
+        await expect(page.locator('#pack-file')).toBeAttached();
+        await expect(page.locator('#btn-load-pack')).toBeVisible();
+        await expect(page.locator('#btn-clear-pack-cache')).toBeVisible();
         await expect(page.locator('.CodeMirror')).toBeVisible();
         await expect(page.locator('#output')).toBeVisible();
         await expect(page.locator('#examples')).toBeVisible();
@@ -73,6 +77,83 @@ test.describe('GoScript Demo Page', () => {
 
         await page.locator('#btn-clear').click();
         await expect(page.locator('#output')).toHaveText('');
+    });
+
+    test('surfaces missing pack download errors clearly', async ({ page }) => {
+        const message = await page.evaluate(async () => {
+            const originalFetch = window.fetch;
+            const loader = new ToolchainLoader();
+            loader.getCached = async () => null;
+
+            window.fetch = async () => new Response('missing', {
+                status: 404,
+                statusText: 'Not Found'
+            });
+
+            try {
+                await loader.load('/missing/goscript.pack');
+                return 'unexpected success';
+            } catch (error) {
+                return error.message;
+            } finally {
+                window.fetch = originalFetch;
+            }
+        });
+
+        expect(message).toContain('Unable to download goscript.pack');
+        expect(message).toContain('HTTP 404');
+        expect(message).toContain('not deployed');
+    });
+
+    test('surfaces invalid cached pack errors clearly when refresh download also fails', async ({ page }) => {
+        const result = await page.evaluate(async () => {
+            const originalFetch = window.fetch;
+            const loader = new ToolchainLoader();
+            let deleted = false;
+
+            loader.getCached = async () => new TextEncoder().encode('<!DOCTYPE html><html><body>Not Found</body></html>').buffer;
+            loader.deleteCache = async () => {
+                deleted = true;
+            };
+
+            window.fetch = async () => {
+                throw new TypeError('Failed to fetch');
+            };
+
+            try {
+                await loader.load('assets/goscript.pack');
+                return { message: 'unexpected success', deleted };
+            } catch (error) {
+                return { message: error.message, deleted };
+            } finally {
+                window.fetch = originalFetch;
+            }
+        });
+
+        expect(result.deleted).toBeTruthy();
+        expect(result.message).toContain('cached goscript.pack');
+        expect(result.message).toContain('could not be downloaded');
+        expect(result.message).toContain('HTML error page');
+    });
+
+    test('can import a local pack into browser cache for later reuse', async ({ page }) => {
+        const result = await page.evaluate(async () => {
+            const loader = new ToolchainLoader();
+            const sourcePack = await loader.getCached('assets/goscript.pack') ||
+                await (await fetch('assets/goscript.pack')).arrayBuffer();
+
+            await loader.importPack('local-pack://playwright-test.pack', sourcePack);
+            const imported = await loader.getCached('local-pack://playwright-test.pack');
+            await loader.deleteCache('local-pack://playwright-test.pack');
+
+            return {
+                hasImportedCopy: !!imported,
+                size: imported ? imported.byteLength : 0
+            };
+        });
+
+        expect(result.hasImportedCopy).toBeTruthy();
+        expect(result.size).toBeGreaterThan(100 * 1024 * 1024);
     });
 
     test.describe('with initialized SDK', () => {

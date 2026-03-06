@@ -40,6 +40,18 @@ func main() {
 </script>
 ```
 
+## Local Setup
+
+```bash
+git clone https://github.com/monstercameron/GoScript.git
+cd GoScript
+npm ci
+npm run fetch:pack
+npm run build
+```
+
+`npm run fetch:pack` downloads `docs/assets/goscript.pack` from the GitHub release asset instead of storing the 168 MB pack in Git.
+
 ## SDK
 
 GoScript provides a clean JavaScript SDK for integration. See [docs/SDK.md](docs/SDK.md) for full documentation.

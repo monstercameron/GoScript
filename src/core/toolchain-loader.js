@@ -102,6 +102,34 @@ class ToolchainLoader {
     }
 
     /**
+     * Delete one cached pack entry
+     * @private
+     * @param {string} url - URL used as cache key
+     * @returns {Promise<void>}
+     */
+    async deleteCache(url) {
+        try {
+            const db = await this.openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, 'readwrite');
+                const store = tx.objectStore(this.storeName);
+                const request = store.delete(url);
+
+                request.onerror = () => {
+                    db.close();
+                    reject(request.error);
+                };
+                request.onsuccess = () => {
+                    db.close();
+                    resolve();
+                };
+            });
+        } catch (e) {
+            console.warn('📦 ToolchainLoader: Failed to delete cached pack:', e.message);
+        }
+    }
+
+    /**
      * Load the complete toolchain pack
      * @param {string} url - URL to goscript.pack file
      * @returns {Promise<void>}
@@ -113,27 +141,101 @@ class ToolchainLoader {
         
         if (cached) {
             console.log(`✅ ToolchainLoader: Loaded from cache (${(cached.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-            this.packData = cached;
-        } else {
-            console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to load goscript.pack: ${response.status}`);
+            try {
+                this.packData = cached;
+                this.parseToolchain();
+                this.loaded = true;
+                console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+                return;
+            } catch (error) {
+                console.warn(`⚠️ ToolchainLoader: Cached goscript.pack is invalid, deleting cache entry for ${url}`);
+                await this.deleteCache(url);
+                this.resetState();
+
+                try {
+                    await this.downloadAndParse(url);
+                    return;
+                } catch (downloadError) {
+                    throw this.buildCachedPackRecoveryError(url, error, downloadError);
+                }
             }
-            
-            this.packData = await response.arrayBuffer();
-            console.log(`📦 ToolchainLoader: Downloaded ${(this.packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
-            
-            // Cache for future use
-            console.log('💾 ToolchainLoader: Caching toolchain for future use...');
-            await this.setCache(url, this.packData);
-            console.log('✅ ToolchainLoader: Toolchain cached successfully');
+        } else {
+            await this.downloadAndParse(url);
+            return;
         }
-        
-        this.parseToolchain();
+    }
+
+    /**
+     * Download, validate, and cache the pack
+     * @private
+     * @param {string} url
+     * @returns {Promise<void>}
+     */
+    async downloadAndParse(url) {
+        console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
+
+        let response;
+        try {
+            response = await fetch(url);
+        } catch (error) {
+            throw this.buildFetchError(url, error);
+        }
+
+        if (!response.ok) {
+            throw this.buildHttpError(url, response.status, response.statusText);
+        }
+
+        let packData;
+        try {
+            packData = await response.arrayBuffer();
+        } catch (error) {
+            throw new Error(`Failed to read goscript.pack from ${url}. The download did not complete successfully. ${error.message}`);
+        }
+
+        console.log(`📦 ToolchainLoader: Downloaded ${(packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
+
+        try {
+            this.packData = packData;
+            this.parseToolchain();
+        } catch (error) {
+            this.resetState();
+            throw this.buildInvalidPackError(url, packData, error, false);
+        }
+
+        // Cache only after validation succeeds.
+        console.log('💾 ToolchainLoader: Caching toolchain for future use...');
+        await this.setCache(url, packData);
+        console.log('✅ ToolchainLoader: Toolchain cached successfully');
+
         this.loaded = true;
-        
+        console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+    }
+
+    /**
+     * Import a local pack file into memory and long-term cache
+     * @param {string} cacheKey - Cache key to store the imported pack under
+     * @param {ArrayBuffer} packData - Raw goscript.pack bytes
+     * @returns {Promise<void>}
+     */
+    async importPack(cacheKey, packData) {
+        if (!(packData instanceof ArrayBuffer)) {
+            throw new Error('Local goscript.pack import requires an ArrayBuffer.');
+        }
+
+        try {
+            this.packData = packData;
+            this.parseToolchain();
+        } catch (error) {
+            this.resetState();
+            throw this.buildInvalidPackError(cacheKey, packData, error, false);
+        }
+
+        console.log(`📦 ToolchainLoader: Imported local goscript.pack (${(packData.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+        console.log('💾 ToolchainLoader: Caching imported toolchain for future use...');
+        await this.setCache(cacheKey, packData);
+        console.log('✅ ToolchainLoader: Imported toolchain cached successfully');
+
+        this.loaded = true;
         console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
     }
 
@@ -162,6 +264,112 @@ class ToolchainLoader {
         } catch (e) {
             console.warn('📦 ToolchainLoader: Failed to clear cache:', e.message);
         }
+    }
+
+    /**
+     * Reset parsed pack state before retrying
+     * @private
+     */
+    resetState() {
+        this.packData = null;
+        this.compilerWasm = null;
+        this.linkerWasm = null;
+        this.packageIndex = new Map();
+        this.packageNames = [];
+        this.loaded = false;
+        this.packageDataStart = 0;
+    }
+
+    /**
+     * Build an error for network-level fetch failures
+     * @private
+     */
+    buildFetchError(url, error) {
+        return new Error(
+            `Unable to download goscript.pack from ${url}. ` +
+            'The compiler pack may be missing from the server, blocked by the browser, or the network request failed. ' +
+            `Original error: ${error.message}`
+        );
+    }
+
+    /**
+     * Build an error for HTTP failures
+     * @private
+     */
+    buildHttpError(url, status, statusText) {
+        return new Error(
+            `Unable to download goscript.pack from ${url}. ` +
+            `The server returned HTTP ${status}${statusText ? ` ${statusText}` : ''}. ` +
+            'This usually means the compiler pack file is not deployed at that path.'
+        );
+    }
+
+    /**
+     * Build an error for cached pack recovery failures
+     * @private
+     */
+    buildCachedPackRecoveryError(url, cacheError, downloadError) {
+        return new Error(
+            `The cached goscript.pack for ${url} is invalid and a fresh copy could not be downloaded. ` +
+            'The browser likely cached an HTML error page or a partial file instead of the compiler pack. ' +
+            `Cached error: ${cacheError.message}. Download error: ${downloadError.message}`
+        );
+    }
+
+    /**
+     * Build a clearer invalid-pack error
+     * @private
+     */
+    buildInvalidPackError(url, packData, error, fromCache) {
+        const source = fromCache ? 'cached' : 'downloaded';
+        const details = [];
+        const sizeBytes = packData?.byteLength || 0;
+        const preview = this.getPackPreview(packData);
+
+        if (this.looksLikeHtml(packData)) {
+            details.push('Received HTML instead of the binary compiler pack');
+        } else if (sizeBytes > 0 && sizeBytes < 1024 * 1024) {
+            details.push(`File is unexpectedly small (${sizeBytes} bytes)`);
+        }
+
+        if (preview) {
+            details.push(`Starts with: ${preview}`);
+        }
+
+        const detailText = details.length > 0 ? ` ${details.join('. ')}.` : '';
+        const remediation = fromCache
+            ? 'Clear the site data for this origin and reload.'
+            : 'Verify that the deployed site includes a valid goscript.pack at that path.';
+
+        return new Error(
+            `The ${source} goscript.pack at ${url} is not a valid GoScript compiler pack. ` +
+            `${remediation}${detailText} Parser error: ${error.message}`
+        );
+    }
+
+    /**
+     * Detect common HTML/error payloads
+     * @private
+     */
+    looksLikeHtml(packData) {
+        const preview = this.getPackPreview(packData).toLowerCase();
+        return preview.startsWith('<!doctype') ||
+            preview.startsWith('<html') ||
+            preview.includes('<head') ||
+            preview.includes('not found');
+    }
+
+    /**
+     * Return a short printable preview of a pack payload
+     * @private
+     */
+    getPackPreview(packData) {
+        if (!packData || packData.byteLength === 0) {
+            return '';
+        }
+
+        const previewBytes = new Uint8Array(packData, 0, Math.min(80, packData.byteLength));
+        return new TextDecoder().decode(previewBytes).replace(/\s+/g, ' ').trim().slice(0, 60);
     }
 
     /**

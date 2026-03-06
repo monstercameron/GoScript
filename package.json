@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/build.ps1' : 'bash ./tools/build.sh', {stdio: 'inherit'})\"",
+    "fetch:pack": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/download-pack.ps1' : 'bash ./tools/download-pack.sh', {stdio: 'inherit'})\"",
     "build:toolchain": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/pack-toolchain.ps1' : 'bash ./tools/pack-toolchain.sh', {stdio: 'inherit'})\"",
     "build:stdlib": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/pack-stdlib.ps1' : 'bash ./tools/pack-stdlib.sh', {stdio: 'inherit'})\"",
     "build:compiler": "node -e \"require('child_process').execSync(process.platform === 'win32' ? 'powershell -ExecutionPolicy Bypass -File ./tools/build-compiler.ps1' : 'bash ./tools/build-compiler.sh', {stdio: 'inherit'})\"",

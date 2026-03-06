@@ -8,7 +8,7 @@
  * - GoScript SDK (MIT License)
  * - Go wasm_exec.js (BSD License)
  * 
- * Built: 2025-11-26 20:24:10
+ * Built: 2026-03-05 22:58:47
  */
 
 // ============================================================
@@ -611,13 +611,14 @@ class VirtualFileSystem {
     /**
      * Write file to virtual filesystem
      * @param {string} path - File path
-     * @param {string|Uint8Array} content - File content
+     * @param {string|Uint8Array|ArrayBuffer} content - File content
      */
     writeFile(path, content) {
         const normalizedPath = this.normalizePath(path);
-        this.files.set(normalizedPath, content);
+        const normalizedContent = content instanceof ArrayBuffer ? new Uint8Array(content) : content;
+        this.files.set(normalizedPath, normalizedContent);
         this.ensureDirectoryExists(this.getDirectory(normalizedPath));
-        console.log(`ðŸ“ VFS: Written ${normalizedPath} (${content.length} bytes)`);
+        console.log(`ðŸ“ VFS: Written ${normalizedPath} (${this.getContentSize(normalizedContent)} bytes)`);
     }
 
     /**
@@ -696,6 +697,78 @@ class VirtualFileSystem {
         const normalizedPath = this.normalizePath(path);
         this.directories.add(normalizedPath);
         console.log(`ðŸ“ VFS: Created directory ${normalizedPath}`);
+    }
+
+    /**
+     * Delete file from virtual filesystem
+     * @param {string} path - File path
+     */
+    unlink(path) {
+        const normalizedPath = this.normalizePath(path);
+        if (!this.files.has(normalizedPath)) {
+            throw this.createError('ENOENT', `File not found: ${normalizedPath}`);
+        }
+        this.files.delete(normalizedPath);
+    }
+
+    /**
+     * Remove an empty directory
+     * @param {string} path - Directory path
+     */
+    rmdir(path) {
+        const normalizedPath = this.normalizePath(path);
+        if (normalizedPath === '/') {
+            throw this.createError('EBUSY', 'Cannot remove root directory');
+        }
+        if (!this.directories.has(normalizedPath)) {
+            throw this.createError('ENOENT', `Directory not found: ${normalizedPath}`);
+        }
+        if (this.listDir(normalizedPath).length > 0) {
+            throw this.createError('ENOTEMPTY', `Directory not empty: ${normalizedPath}`);
+        }
+        this.directories.delete(normalizedPath);
+    }
+
+    /**
+     * Rename a file or directory
+     * @param {string} from - Existing path
+     * @param {string} to - New path
+     */
+    rename(from, to) {
+        const sourcePath = this.normalizePath(from);
+        const targetPath = this.normalizePath(to);
+
+        if (this.files.has(sourcePath)) {
+            const content = this.files.get(sourcePath);
+            this.files.delete(sourcePath);
+            this.writeFile(targetPath, content);
+            return;
+        }
+
+        if (!this.directories.has(sourcePath)) {
+            throw this.createError('ENOENT', `Path not found: ${sourcePath}`);
+        }
+
+        const updatedDirectories = new Set();
+        for (const dirPath of this.directories) {
+            if (dirPath === sourcePath || dirPath.startsWith(`${sourcePath}/`)) {
+                updatedDirectories.add(dirPath.replace(sourcePath, targetPath));
+            } else {
+                updatedDirectories.add(dirPath);
+            }
+        }
+        this.directories = updatedDirectories;
+
+        const updatedFiles = new Map();
+        for (const [filePath, content] of this.files.entries()) {
+            if (filePath.startsWith(`${sourcePath}/`)) {
+                updatedFiles.set(filePath.replace(sourcePath, targetPath), content);
+            } else {
+                updatedFiles.set(filePath, content);
+            }
+        }
+        this.files = updatedFiles;
+        this.ensureDirectoryExists(this.getDirectory(targetPath));
     }
 
     /**
@@ -843,6 +916,12 @@ class VirtualFileSystem {
         }
     }
 
+    createError(code, message) {
+        const error = new Error(message);
+        error.code = code;
+        return error;
+    }
+
     /**
      * Clear all files and directories
      */
@@ -861,13 +940,22 @@ class VirtualFileSystem {
             totalFiles: this.files.size,
             totalDirectories: this.directories.size,
             goFiles: this.getGoFiles().length,
-            totalSize: Array.from(this.files.values()).reduce((sum, content) => sum + content.length, 0)
+            totalSize: Array.from(this.files.values()).reduce((sum, content) => sum + this.getContentSize(content), 0)
         };
+    }
+
+    getContentSize(content) {
+        if (typeof content === 'string') {
+            return content.length;
+        }
+
+        return content?.byteLength ?? content?.length ?? 0;
     }
 }
 
 // Export for use in other modules
 window.VirtualFileSystem = VirtualFileSystem; 
+
 
 /**
  * Filesystem Polyfill for Go WASM
@@ -1136,17 +1224,30 @@ class FSPolyfill {
             },
             
             unlink(path, callback) {
-                // Not implemented in VFS yet
-                callback(null);
+                try {
+                    self.vfs.unlink(path);
+                    callback(null);
+                } catch (e) {
+                    callback(e);
+                }
             },
             
             rename(from, to, callback) {
-                // Not implemented in VFS yet
-                callback(null);
+                try {
+                    self.vfs.rename(from, to);
+                    callback(null);
+                } catch (e) {
+                    callback(e);
+                }
             },
             
             rmdir(path, callback) {
-                callback(null);
+                try {
+                    self.vfs.rmdir(path);
+                    callback(null);
+                } catch (e) {
+                    callback(e);
+                }
             }
         };
 
@@ -1154,7 +1255,13 @@ class FSPolyfill {
         if (!globalThis.process) globalThis.process = {};
         globalThis.process.cwd = () => self.vfs.workingDirectory;
         globalThis.process.chdir = (path) => {
-            self.vfs.workingDirectory = path;
+            const normalizedPath = self.vfs.normalizePath(path);
+            if (normalizedPath !== '/' && !self.vfs.isDirectory(normalizedPath)) {
+                const err = new Error(`ENOENT: no such directory, chdir '${path}'`);
+                err.code = 'ENOENT';
+                throw err;
+            }
+            self.vfs.workingDirectory = normalizedPath;
         };
     }
 }
@@ -1401,21 +1508,25 @@ class CacheManager {
         const cutoffTime = Date.now() - maxAge;
         const stores = ['sourceFiles', 'compiledWasm'];
         
-        for (const storeName of stores) {
+        await Promise.all(stores.map((storeName) => new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
-            const store = transaction.objectStore('sourceFiles');
+            const store = transaction.objectStore(storeName);
             const index = store.index('timestamp');
-            
             const request = index.openCursor(IDBKeyRange.upperBound(cutoffTime));
-            
+
             request.onsuccess = (event) => {
                 const cursor = event.target.result;
                 if (cursor) {
                     cursor.delete();
                     cursor.continue();
+                    return;
                 }
+                resolve();
             };
-        }
+
+            request.onerror = () => reject(request.error || new Error(`Failed to clear ${storeName}`));
+            transaction.onerror = () => reject(transaction.error || new Error(`Failed to clear ${storeName}`));
+        })));
         
         console.log('âœ… CacheManager: Old entries cleared');
     }
@@ -1427,31 +1538,37 @@ class CacheManager {
     async getStats() {
         if (!this.ready) await this.init();
         
-        const stats = {
-            sourceFiles: 0,
-            compiledWasm: 0,
-            totalSize: 0
+        const countStore = (storeName) => new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const items = [];
+            const request = store.openCursor();
+
+            request.onsuccess = (event) => {
+                const cursor = event.target.result;
+                if (cursor) {
+                    items.push(cursor.value);
+                    cursor.continue();
+                    return;
+                }
+                resolve(items);
+            };
+
+            request.onerror = () => reject(request.error || new Error(`Failed to read ${storeName}`));
+            transaction.onerror = () => reject(transaction.error || new Error(`Failed to read ${storeName}`));
+        });
+
+        const [sourceFiles, compiledWasm] = await Promise.all([
+            countStore('sourceFiles'),
+            countStore('compiledWasm')
+        ]);
+
+        return {
+            sourceFiles: sourceFiles.length,
+            compiledWasm: compiledWasm.length,
+            totalSize: sourceFiles.reduce((sum, entry) => sum + (entry.size || 0), 0) +
+                compiledWasm.reduce((sum, entry) => sum + (entry.size || 0), 0)
         };
-        
-        const transaction = this.db.transaction(['sourceFiles', 'compiledWasm'], 'readonly');
-        
-        // Count source files
-        const sourceStore = transaction.objectStore('sourceFiles');
-        const sourceRequest = sourceStore.count();
-        
-        sourceRequest.onsuccess = (event) => {
-            stats.sourceFiles = event.target.result;
-        };
-        
-        // Count WASM files
-        const wasmStore = transaction.objectStore('compiledWasm');
-        const wasmRequest = wasmStore.count();
-        
-        wasmRequest.onsuccess = (event) => {
-            stats.compiledWasm = event.target.result;
-        };
-        
-        return stats;
     }
 
     /**
@@ -1487,6 +1604,7 @@ class CacheManager {
 
 // Export for use in other modules
 window.CacheManager = CacheManager; 
+
 
 /**
  * GoScript - Toolchain Pack Loader
@@ -1592,6 +1710,34 @@ class ToolchainLoader {
     }
 
     /**
+     * Delete one cached pack entry
+     * @private
+     * @param {string} url - URL used as cache key
+     * @returns {Promise<void>}
+     */
+    async deleteCache(url) {
+        try {
+            const db = await this.openDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, 'readwrite');
+                const store = tx.objectStore(this.storeName);
+                const request = store.delete(url);
+
+                request.onerror = () => {
+                    db.close();
+                    reject(request.error);
+                };
+                request.onsuccess = () => {
+                    db.close();
+                    resolve();
+                };
+            });
+        } catch (e) {
+            console.warn('ðŸ“¦ ToolchainLoader: Failed to delete cached pack:', e.message);
+        }
+    }
+
+    /**
      * Load the complete toolchain pack
      * @param {string} url - URL to goscript.pack file
      * @returns {Promise<void>}
@@ -1603,27 +1749,101 @@ class ToolchainLoader {
         
         if (cached) {
             console.log(`âœ… ToolchainLoader: Loaded from cache (${(cached.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-            this.packData = cached;
-        } else {
-            console.log('ðŸ“¦ ToolchainLoader: Downloading GoScript toolchain (single file)...');
-            
-            const response = await fetch(url);
-            if (!response.ok) {
-                throw new Error(`Failed to load goscript.pack: ${response.status}`);
+            try {
+                this.packData = cached;
+                this.parseToolchain();
+                this.loaded = true;
+                console.log(`âœ… ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+                return;
+            } catch (error) {
+                console.warn(`âš ï¸ ToolchainLoader: Cached goscript.pack is invalid, deleting cache entry for ${url}`);
+                await this.deleteCache(url);
+                this.resetState();
+
+                try {
+                    await this.downloadAndParse(url);
+                    return;
+                } catch (downloadError) {
+                    throw this.buildCachedPackRecoveryError(url, error, downloadError);
+                }
             }
-            
-            this.packData = await response.arrayBuffer();
-            console.log(`ðŸ“¦ ToolchainLoader: Downloaded ${(this.packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
-            
-            // Cache for future use
-            console.log('ðŸ’¾ ToolchainLoader: Caching toolchain for future use...');
-            await this.setCache(url, this.packData);
-            console.log('âœ… ToolchainLoader: Toolchain cached successfully');
+        } else {
+            await this.downloadAndParse(url);
+            return;
         }
-        
-        this.parseToolchain();
+    }
+
+    /**
+     * Download, validate, and cache the pack
+     * @private
+     * @param {string} url
+     * @returns {Promise<void>}
+     */
+    async downloadAndParse(url) {
+        console.log('ðŸ“¦ ToolchainLoader: Downloading GoScript toolchain (single file)...');
+
+        let response;
+        try {
+            response = await fetch(url);
+        } catch (error) {
+            throw this.buildFetchError(url, error);
+        }
+
+        if (!response.ok) {
+            throw this.buildHttpError(url, response.status, response.statusText);
+        }
+
+        let packData;
+        try {
+            packData = await response.arrayBuffer();
+        } catch (error) {
+            throw new Error(`Failed to read goscript.pack from ${url}. The download did not complete successfully. ${error.message}`);
+        }
+
+        console.log(`ðŸ“¦ ToolchainLoader: Downloaded ${(packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
+
+        try {
+            this.packData = packData;
+            this.parseToolchain();
+        } catch (error) {
+            this.resetState();
+            throw this.buildInvalidPackError(url, packData, error, false);
+        }
+
+        // Cache only after validation succeeds.
+        console.log('ðŸ’¾ ToolchainLoader: Caching toolchain for future use...');
+        await this.setCache(url, packData);
+        console.log('âœ… ToolchainLoader: Toolchain cached successfully');
+
         this.loaded = true;
-        
+        console.log(`âœ… ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+    }
+
+    /**
+     * Import a local pack file into memory and long-term cache
+     * @param {string} cacheKey - Cache key to store the imported pack under
+     * @param {ArrayBuffer} packData - Raw goscript.pack bytes
+     * @returns {Promise<void>}
+     */
+    async importPack(cacheKey, packData) {
+        if (!(packData instanceof ArrayBuffer)) {
+            throw new Error('Local goscript.pack import requires an ArrayBuffer.');
+        }
+
+        try {
+            this.packData = packData;
+            this.parseToolchain();
+        } catch (error) {
+            this.resetState();
+            throw this.buildInvalidPackError(cacheKey, packData, error, false);
+        }
+
+        console.log(`ðŸ“¦ ToolchainLoader: Imported local goscript.pack (${(packData.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+        console.log('ðŸ’¾ ToolchainLoader: Caching imported toolchain for future use...');
+        await this.setCache(cacheKey, packData);
+        console.log('âœ… ToolchainLoader: Imported toolchain cached successfully');
+
+        this.loaded = true;
         console.log(`âœ… ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
     }
 
@@ -1652,6 +1872,112 @@ class ToolchainLoader {
         } catch (e) {
             console.warn('ðŸ“¦ ToolchainLoader: Failed to clear cache:', e.message);
         }
+    }
+
+    /**
+     * Reset parsed pack state before retrying
+     * @private
+     */
+    resetState() {
+        this.packData = null;
+        this.compilerWasm = null;
+        this.linkerWasm = null;
+        this.packageIndex = new Map();
+        this.packageNames = [];
+        this.loaded = false;
+        this.packageDataStart = 0;
+    }
+
+    /**
+     * Build an error for network-level fetch failures
+     * @private
+     */
+    buildFetchError(url, error) {
+        return new Error(
+            `Unable to download goscript.pack from ${url}. ` +
+            'The compiler pack may be missing from the server, blocked by the browser, or the network request failed. ' +
+            `Original error: ${error.message}`
+        );
+    }
+
+    /**
+     * Build an error for HTTP failures
+     * @private
+     */
+    buildHttpError(url, status, statusText) {
+        return new Error(
+            `Unable to download goscript.pack from ${url}. ` +
+            `The server returned HTTP ${status}${statusText ? ` ${statusText}` : ''}. ` +
+            'This usually means the compiler pack file is not deployed at that path.'
+        );
+    }
+
+    /**
+     * Build an error for cached pack recovery failures
+     * @private
+     */
+    buildCachedPackRecoveryError(url, cacheError, downloadError) {
+        return new Error(
+            `The cached goscript.pack for ${url} is invalid and a fresh copy could not be downloaded. ` +
+            'The browser likely cached an HTML error page or a partial file instead of the compiler pack. ' +
+            `Cached error: ${cacheError.message}. Download error: ${downloadError.message}`
+        );
+    }
+
+    /**
+     * Build a clearer invalid-pack error
+     * @private
+     */
+    buildInvalidPackError(url, packData, error, fromCache) {
+        const source = fromCache ? 'cached' : 'downloaded';
+        const details = [];
+        const sizeBytes = packData?.byteLength || 0;
+        const preview = this.getPackPreview(packData);
+
+        if (this.looksLikeHtml(packData)) {
+            details.push('Received HTML instead of the binary compiler pack');
+        } else if (sizeBytes > 0 && sizeBytes < 1024 * 1024) {
+            details.push(`File is unexpectedly small (${sizeBytes} bytes)`);
+        }
+
+        if (preview) {
+            details.push(`Starts with: ${preview}`);
+        }
+
+        const detailText = details.length > 0 ? ` ${details.join('. ')}.` : '';
+        const remediation = fromCache
+            ? 'Clear the site data for this origin and reload.'
+            : 'Verify that the deployed site includes a valid goscript.pack at that path.';
+
+        return new Error(
+            `The ${source} goscript.pack at ${url} is not a valid GoScript compiler pack. ` +
+            `${remediation}${detailText} Parser error: ${error.message}`
+        );
+    }
+
+    /**
+     * Detect common HTML/error payloads
+     * @private
+     */
+    looksLikeHtml(packData) {
+        const preview = this.getPackPreview(packData).toLowerCase();
+        return preview.startsWith('<!doctype') ||
+            preview.startsWith('<html') ||
+            preview.includes('<head') ||
+            preview.includes('not found');
+    }
+
+    /**
+     * Return a short printable preview of a pack payload
+     * @private
+     */
+    getPackPreview(packData) {
+        if (!packData || packData.byteLength === 0) {
+            return '';
+        }
+
+        const previewBytes = new Uint8Array(packData, 0, Math.min(80, packData.byteLength));
+        return new TextDecoder().decode(previewBytes).replace(/\s+/g, ' ').trim().slice(0, 60);
     }
 
     /**
@@ -1945,6 +2271,8 @@ class CompilationManager {
         this.vfs = null;
         this.cacheManager = null;
         this.compilerLoaded = false;
+        this.allowMockFallback = false;
+        this.toolchainUrl = 'assets/goscript.pack';
         this.status = 'idle';
         this.callbacks = {
             onProgress: null,
@@ -1988,7 +2316,9 @@ class CompilationManager {
             
             // Stage 1: Load Go compiler
             this.emitStageUpdate(1, 'active');
-            await this.loadCompiler();
+            if (!this.compilerLoaded || !this.compileWasmBytes || !this.linkWasmBytes) {
+                await this.loadCompiler();
+            }
             this.emitStageUpdate(1, 'complete');
             this.emitProgress(15, 'COMPILER_READY');
             
@@ -2064,7 +2394,7 @@ class CompilationManager {
             if (window.ToolchainLoader) {
                 console.log('ðŸ“¦ Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
                 this.toolchainLoader = new window.ToolchainLoader();
-                await this.toolchainLoader.load('assets/goscript.pack');
+                await this.toolchainLoader.load(this.toolchainUrl);
                 
                 // Extract compiler and linker
                 this.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
@@ -2123,10 +2453,7 @@ class CompilationManager {
             
         } catch (error) {
             console.error('âŒ CompilationManager: Failed to load Go compiler:', error);
-            // Fall back to mock implementation
-            await this.delay(500);
-            this.compilerLoaded = true;
-            console.log('âš ï¸ CompilationManager: Using fallback mock compiler');
+            throw error;
         }
     }
 
@@ -2249,12 +2576,18 @@ class CompilationManager {
                 return wasmBinary;
                 
             } catch (error) {
-                console.warn(`âš ï¸ CompilationManager: Real compiler failed, using fallback: ${error.message}`);
+                console.warn(`âš ï¸ CompilationManager: Real compiler failed: ${error.message}`);
                 console.error(error);
-                // Fall back to mock if real compilation fails
+                if (!this.allowMockFallback) {
+                    throw error;
+                }
             }
         }
         
+        if (!this.allowMockFallback) {
+            throw new Error('Go compiler is not available');
+        }
+
         // Fallback: Simulate compilation time and generate mock WASM
         const compilationTime = Math.max(1000, goFiles.length * 200);
         await this.delay(compilationTime);
@@ -2382,6 +2715,10 @@ class CompilationManager {
      */
     async runGoCompiler() {
         console.log('âš™ï¸ CompilationManager: Invoking real Go compiler...');
+
+        if (typeof Go === 'undefined') {
+            throw new Error('wasm_exec.js is not loaded');
+        }
         
         // Only compile the specific files passed to compile(), not all files in VFS
         const filesToCompile = Object.keys(this.filesToCompile || {});
@@ -2418,6 +2755,12 @@ class CompilationManager {
             console.log('âš™ï¸ CompilationManager: Running compile...');
             console.log('âš™ï¸ Args:', ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles]);
             const goCompile = new Go();
+            goCompile.exitCode = 0;
+            const originalCompileExit = goCompile.exit.bind(goCompile);
+            goCompile.exit = (code) => {
+                goCompile.exitCode = code;
+                originalCompileExit(code);
+            };
             goCompile.argv = ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles];
             goCompile.env = { 'GOOS': 'js', 'GOARCH': 'wasm', 'GOROOT': '/' };
             
@@ -2430,6 +2773,11 @@ class CompilationManager {
             
             if (compilerOutput.length > 0) {
                 console.log('Compiler output:', compilerOutput.join('\n'));
+            }
+
+            if (goCompile.exitCode !== 0) {
+                const errorMsg = compilerOutput.length > 0 ? compilerOutput.join('\n') : `compiler exited with code ${goCompile.exitCode}`;
+                throw new Error(`Compilation failed: ${errorMsg}`);
             }
         } finally {
             window.addConsoleOutput = originalAddConsoleOutput;
@@ -2445,11 +2793,21 @@ class CompilationManager {
         // go tool link -o main.wasm main.o
         console.log('âš™ï¸ CompilationManager: Running link...');
         const goLink = new Go();
+        goLink.exitCode = 0;
+        const originalLinkExit = goLink.exit.bind(goLink);
+        goLink.exit = (code) => {
+            goLink.exitCode = code;
+            originalLinkExit(code);
+        };
         goLink.argv = ['link', '-o', '/tmp/main.wasm', '-L', '/pkg/js_wasm', '/tmp/main.o'];
         goLink.env = { 'GOOS': 'js', 'GOARCH': 'wasm', 'GOROOT': '/' };
         
         const linkInstance = await WebAssembly.instantiate(this.linkWasmBytes, goLink.importObject);
         await goLink.run(linkInstance.instance);
+
+        if (goLink.exitCode !== 0) {
+            throw new Error(`Linking failed with exit code ${goLink.exitCode}`);
+        }
         
         // Read output
         if (!this.vfs.exists('/tmp/main.wasm')) {
@@ -2515,6 +2873,7 @@ class CompilationManager {
 // Export for use in other modules
 window.CompilationManager = CompilationManager; 
 
+
 /**
  * Personal Website 2025 - App Runner
  * Handles WASM execution and DOM mounting
@@ -2528,6 +2887,8 @@ class AppRunner {
         this.mountPoint = null;
         this.go = null; // Go runtime instance
         this.outputCallback = null;
+        this.allowMockExecution = false;
+        this.usingMockRuntime = false;
     }
 
     /**
@@ -2545,6 +2906,10 @@ class AppRunner {
      */
     setupFsPolyfill() {
         if (!window.fs) window.fs = {};
+        const baseFs = window.fs;
+        const originalWriteSync = typeof baseFs.writeSync === 'function' ? baseFs.writeSync.bind(baseFs) : null;
+        const originalWrite = typeof baseFs.write === 'function' ? baseFs.write.bind(baseFs) : null;
+        const originalOpen = typeof baseFs.open === 'function' ? baseFs.open.bind(baseFs) : null;
         
         const writeToOutput = (buf) => {
             if (this.outputCallback) {
@@ -2559,25 +2924,37 @@ class AppRunner {
                 writeToOutput(buf);
                 return buf.length;
             }
+
+            if (originalWriteSync) {
+                return originalWriteSync(fd, buf);
+            }
+
             return buf.length;
         };
         
         window.fs.write = (fd, buf, offset, length, position, callback) => {
-             if (fd === 1 || fd === 2) {
+            if (fd === 1 || fd === 2) {
                 writeToOutput(buf.subarray(offset, offset + length));
                 callback(null, length);
-            } else {
-                console.log("fs.write", fd);
-                callback(null, 0);
+                return;
             }
+
+            if (originalWrite) {
+                originalWrite(fd, buf, offset, length, position, callback);
+                return;
+            }
+
+            callback(null, length);
         };
         
-        if (!window.fs.open) {
-             window.fs.open = (path, flags, mode, callback) => {
-                // console.log("fs.open", path);
-                callback(null, 0);
-            };
-        }
+        window.fs.open = (path, flags, mode, callback) => {
+            if (originalOpen) {
+                originalOpen(path, flags, mode, callback);
+                return;
+            }
+
+            callback(null, 0);
+        };
     }
 
     /**
@@ -2645,6 +3022,9 @@ class AppRunner {
             const isMock = wasmBinary.byteLength < 10000;
             
             if (isMock) {
+                if (!this.allowMockExecution) {
+                    throw new Error('Mock WASM execution is disabled');
+                }
                 // For mock WASM, simulate the output based on source code
                 console.log('ðŸŽ­ AppRunner: Using mock execution (compiler not available)');
                 await this.executeMockConsole(sourceCode);
@@ -2653,6 +3033,15 @@ class AppRunner {
             
             // Load and instantiate WASM module
             await this.loadWasmModule(wasmBinary);
+
+            if (this.usingMockRuntime) {
+                if (!this.allowMockExecution) {
+                    throw new Error('Mock runtime fallback is disabled');
+                }
+                await this.executeMockConsole(sourceCode);
+                this.isRunning = true;
+                return;
+            }
             
             // Run the WASM application
             await this.runWasmApplication(true);
@@ -2773,13 +3162,20 @@ class AppRunner {
             try {
                 this.wasmModule = await WebAssembly.instantiate(wasmBinary, this.go.importObject);
                 this.wasmInstance = this.wasmModule.instance;
+                this.usingMockRuntime = false;
                 console.log('âœ… AppRunner: WASM module loaded with Go runtime');
             } catch (error) {
+                if (!this.allowMockExecution) {
+                    throw error;
+                }
                 console.warn('âš ï¸ AppRunner: Go runtime failed, falling back to mock');
                 await this.loadMockModule(wasmBinary);
             }
         } else {
             // Use mock implementation
+            if (!this.allowMockExecution) {
+                throw new Error('Go runtime is unavailable and mock execution is disabled');
+            }
             await this.loadMockModule(wasmBinary);
         }
     }
@@ -2805,6 +3201,7 @@ class AppRunner {
         };
         
         this.wasmInstance = this.wasmModule.instance;
+        this.usingMockRuntime = true;
         console.log('âœ… AppRunner: Mock WASM module loaded');
     }
 
@@ -2839,6 +3236,16 @@ class AppRunner {
     async runWasmApplication(isConsole = false) {
         console.log('â–¶ï¸ AppRunner: Starting WASM application...');
         
+        if (this.usingMockRuntime) {
+            if (!isConsole) {
+                this.renderMockApplication();
+                return;
+            }
+
+            console.warn('âš ï¸ AppRunner: Mock application skipped in console mode');
+            return;
+        }
+
         if (this.go) {
             // Run with Go runtime
             await this.go.run(this.wasmInstance);
@@ -3150,6 +3557,7 @@ class AppRunner {
 // Export for use in other modules
 window.AppRunner = AppRunner;
 
+
 /**
  * GoScript SDK - Simple API for browser-based Go compilation
  * This is the main entry point for using GoScript in web applications
@@ -3171,6 +3579,7 @@ class GoScript {
         this.compilationManager = null;
         this.appRunner = null;
         this.lastWasmBinary = null;
+        this.lastSourceFiles = null;
         this.compileStartTime = 0;
     }
 
@@ -3191,39 +3600,7 @@ class GoScript {
             this.vfs = new VirtualFileSystem();
             this.options.onProgress(10, 'Fetching toolchain pack...');
 
-            // Load toolchain pack
-            this.toolchainLoader = new ToolchainLoader();
-            await this.toolchainLoader.load(this.options.packUrl);
-            this.options.onProgress(50, 'Toolchain loaded...');
-
-            // Create compilation manager
-            this.compilationManager = new CompilationManager();
-            
-            // Create cache manager
-            this.cacheManager = new CacheManager();
-            await this.cacheManager.init();
-            
-            // Initialize compilation manager with VFS and cache
-            this.compilationManager.init(this.vfs, this.cacheManager);
-            
-            // Setup filesystem polyfill for Go WASM
-            if (window.FSPolyfill) {
-                const polyfill = new FSPolyfill(this.vfs);
-                polyfill.patch();
-            }
-
-            // Load stdlib packages into VFS
-            this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
-            this.options.onProgress(80, 'Standard library loaded...');
-
-            // Store compiler and linker references
-            this.compilationManager.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
-            this.compilationManager.linkWasmBytes = this.toolchainLoader.getLinkerWasm();
-            this.compilationManager.compilerLoaded = true;
-
-            // Create app runner
-            this.appRunner = new AppRunner();
-            this.appRunner.init(this.vfs);
+            await this.loadToolchain(this.options.packUrl);
 
             this.options.onProgress(100, 'Ready');
             this.initialized = true;
@@ -3250,9 +3627,15 @@ class GoScript {
 
         try {
             // Prepare source files
-            const sourceFiles = {
-                'main.go': sourceCode
-            };
+            const sourceFiles = typeof sourceCode === 'string'
+                ? { 'main.go': sourceCode }
+                : sourceCode;
+
+            if (!sourceFiles || typeof sourceFiles !== 'object') {
+                throw new Error('compile() expects a Go source string or a filename-to-source map');
+            }
+
+            this.lastSourceFiles = sourceFiles;
 
             // Set up output capture
             const originalAddConsoleOutput = window.addConsoleOutput;
@@ -3261,22 +3644,23 @@ class GoScript {
                 if (originalAddConsoleOutput) originalAddConsoleOutput(text);
             };
 
-            // Run compilation
-            const wasmBinary = await this.compilationManager.compile(sourceFiles);
-            
-            // Restore output handler
-            window.addConsoleOutput = originalAddConsoleOutput;
+            try {
+                // Run compilation
+                const wasmBinary = await this.compilationManager.compile(sourceFiles);
 
-            const compileTime = Math.round(performance.now() - this.compileStartTime);
-            this.lastWasmBinary = wasmBinary;
+                const compileTime = Math.round(performance.now() - this.compileStartTime);
+                this.lastWasmBinary = wasmBinary;
 
-            this.log(`[GoScript] Compilation complete in ${compileTime}ms`);
+                this.log(`[GoScript] Compilation complete in ${compileTime}ms`);
 
-            return {
-                wasm: wasmBinary,
-                compileTime: compileTime,
-                size: wasmBinary.byteLength
-            };
+                return {
+                    wasm: wasmBinary,
+                    compileTime: compileTime,
+                    size: wasmBinary.byteLength
+                };
+            } finally {
+                window.addConsoleOutput = originalAddConsoleOutput;
+            }
 
         } catch (error) {
             this.log(`[GoScript] Compilation failed: ${error.message}`);
@@ -3288,8 +3672,8 @@ class GoScript {
      * Run the last compiled WebAssembly binary
      * @returns {Promise<void>}
      */
-    async run() {
-        if (!this.lastWasmBinary) {
+    async run(wasmBinary = this.lastWasmBinary) {
+        if (!wasmBinary) {
             throw new Error('No compiled binary available. Call compile() first.');
         }
 
@@ -3301,7 +3685,8 @@ class GoScript {
                 this.options.onOutput(text);
             });
 
-            await this.appRunner.executeConsole(this.lastWasmBinary);
+            const sourceCode = this.lastSourceFiles?.['main.go'] || null;
+            await this.appRunner.executeConsole(wasmBinary, sourceCode);
 
             this.log('[GoScript] Program execution complete');
 
@@ -3372,6 +3757,85 @@ class GoScript {
      */
     isReady() {
         return this.initialized;
+    }
+
+    getState() {
+        return {
+            initialized: this.initialized,
+            compilerReady: !!this.compilationManager?.compilerLoaded,
+            compiling: this.compilationManager?.getStatus() === 'compiling',
+            hasBinary: !!this.lastWasmBinary
+        };
+    }
+
+    hasPackage(name) {
+        return !!this.toolchainLoader?.hasPackage(name);
+    }
+
+    getPackages() {
+        return this.toolchainLoader?.getPackageNames() || [];
+    }
+
+    reset() {
+        this.lastWasmBinary = null;
+        this.lastSourceFiles = null;
+        this.vfs = new VirtualFileSystem();
+        if (window.FSPolyfill) {
+            const polyfill = new FSPolyfill(this.vfs);
+            polyfill.patch();
+        }
+        if (this.toolchainLoader) {
+            this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
+        }
+        if (this.compilationManager && this.cacheManager) {
+            this.compilationManager.init(this.vfs, this.cacheManager);
+            this.compilationManager.toolchainUrl = this.options.packUrl;
+            this.compilationManager.compileWasmBytes = this.toolchainLoader?.getCompilerWasm() || null;
+            this.compilationManager.linkWasmBytes = this.toolchainLoader?.getLinkerWasm() || null;
+            this.compilationManager.compilerLoaded = !!(this.compilationManager.compileWasmBytes && this.compilationManager.linkWasmBytes);
+        }
+    }
+
+    async loadToolchain(packUrl = this.options.packUrl) {
+        this.options.packUrl = packUrl;
+
+        if (!this.vfs) {
+            this.vfs = new VirtualFileSystem();
+        }
+
+        if (!this.toolchainLoader) {
+            this.toolchainLoader = new ToolchainLoader();
+        }
+        await this.toolchainLoader.load(packUrl);
+        this.options.onProgress(50, 'Toolchain loaded...');
+
+        if (!this.cacheManager) {
+            this.cacheManager = new CacheManager();
+            await this.cacheManager.init();
+        }
+
+        if (!this.compilationManager) {
+            this.compilationManager = new CompilationManager();
+        }
+        this.compilationManager.init(this.vfs, this.cacheManager);
+        this.compilationManager.toolchainUrl = packUrl;
+
+        if (window.FSPolyfill) {
+            const polyfill = new FSPolyfill(this.vfs);
+            polyfill.patch();
+        }
+
+        this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
+        this.options.onProgress(80, 'Standard library loaded...');
+
+        this.compilationManager.compileWasmBytes = this.toolchainLoader.getCompilerWasm();
+        this.compilationManager.linkWasmBytes = this.toolchainLoader.getLinkerWasm();
+        this.compilationManager.compilerLoaded = true;
+
+        if (!this.appRunner) {
+            this.appRunner = new AppRunner();
+            await this.appRunner.init();
+        }
     }
 
     /**

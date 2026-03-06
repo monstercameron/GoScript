@@ -49,6 +49,18 @@ Download the latest release:
 - `dist/goscript.bundle.js` - SDK + wasm_exec.js (43 KB)
 - `assets/goscript.pack` - Toolchain (168 MB)
 
+### Local clone setup
+
+```bash
+git clone https://github.com/monstercameron/GoScript.git
+cd GoScript
+npm ci
+npm run fetch:pack
+npm run build
+```
+
+`npm run fetch:pack` downloads `docs/assets/goscript.pack` from the GitHub release asset for local development.
+
 ### CDN (coming soon)
 
 ```html
