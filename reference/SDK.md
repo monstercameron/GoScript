@@ -19,7 +19,7 @@ Browser-based Go compiler using WebAssembly. Compile and run Go programs entirel
 <script src="dist/goscript.bundle.js"></script>
 
 <!-- Option B: Separate files -->
-<script src="src/runtime/wasm_exec.js"></script>
+<script src="src/wasm_exec.js"></script>
 <script src="dist/goscript.js"></script>
 ```
 
@@ -285,11 +285,11 @@ goscript/
 ├── dist/
 │   ├── goscript.bundle.js  # SDK + wasm_exec.js
 │   └── goscript.js         # SDK only
-├── sdk/
-│   └── goscript.js         # SDK source
 ├── src/
-│   └── runtime/
-│       └── wasm_exec.js    # Go WASM runtime
+│   ├── platform.js         # VFS, fs bridge, cache, toolchain loader
+│   ├── engine.js           # Compiler pipeline and app runner
+│   ├── goscript-sdk.js     # Public SDK entry point
+│   └── wasm_exec.js        # Go WASM runtime
 ├── tools/
 │   ├── build.ps1           # Build script
 │   └── pack-toolchain.ps1  # Toolchain packer

@@ -54,7 +54,7 @@ npm run build
 
 ## SDK
 
-GoScript provides a clean JavaScript SDK for integration. See [docs/SDK.md](docs/SDK.md) for full documentation.
+GoScript provides a clean JavaScript SDK for integration. See [reference/SDK.md](reference/SDK.md) for full documentation.
 
 ```javascript
 const gs = new GoScript({

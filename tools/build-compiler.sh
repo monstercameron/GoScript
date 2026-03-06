@@ -27,6 +27,6 @@ if [ ! -f "$WASM_EXEC_PATH" ]; then
     WASM_EXEC_PATH="$GOROOT/misc/wasm/wasm_exec.js"
 fi
 
-cp "$WASM_EXEC_PATH" "$ROOT_DIR/src/runtime/wasm_exec.js"
+cp "$WASM_EXEC_PATH" "$ROOT_DIR/src/wasm_exec.js"
 
 echo "Done."

@@ -22,36 +22,18 @@ Write-Host "Building GoScript SDK..."
 Write-Host ""
 
 # Read all source files and combine them
-$wasmExec = Get-Content (Join-Path $srcDir "runtime\wasm_exec.js") -Raw
-$virtualFs = Get-Content (Join-Path $srcDir "core\virtual-fs.js") -Raw
-$fsPolyfill = Get-Content (Join-Path $srcDir "core\fs-polyfill.js") -Raw
-$cacheManager = Get-Content (Join-Path $srcDir "core\cache-manager.js") -Raw
-$toolchainLoader = Get-Content (Join-Path $srcDir "core\toolchain-loader.js") -Raw
-$githubFetcher = Get-Content (Join-Path $srcDir "compiler\github-fetcher.js") -Raw
-$compilationManager = Get-Content (Join-Path $srcDir "compiler\compilation-manager.js") -Raw
-$appRunner = Get-Content (Join-Path $srcDir "runtime\app-runner.js") -Raw
+$wasmExec = Get-Content (Join-Path $srcDir "wasm_exec.js") -Raw
+$platform = Get-Content (Join-Path $srcDir "platform.js") -Raw
+$engine = Get-Content (Join-Path $srcDir "engine.js") -Raw
 $goscriptSdk = Get-Content (Join-Path $srcDir "goscript-sdk.js") -Raw
-$main = Get-Content (Join-Path $srcDir "main.js") -Raw
 
 # Build combined SDK (all internal modules)
 $sdkContent = @"
-$virtualFs
+$platform
 
-$fsPolyfill
-
-$cacheManager
-
-$toolchainLoader
-
-$githubFetcher
-
-$compilationManager
-
-$appRunner
+$engine
 
 $goscriptSdk
-
-$main
 "@
 
 # Build banner
