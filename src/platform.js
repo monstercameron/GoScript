@@ -6,6 +6,101 @@
 var GoScriptGlobal = typeof globalThis !== 'undefined'
     ? globalThis
     : (typeof window !== 'undefined' ? window : {});
+var GoScriptPlatformConstants = GoScriptGlobal.GoScriptConstants;
+
+/**
+ * Normalize unknown thrown values into Error objects.
+ * @param {unknown} thrownValue
+ * @param {string} [fallbackMessage]
+ * @returns {Error}
+ */
+function normalizeGoScriptError(thrownValue, fallbackMessage = 'Unexpected GoScript error') {
+    if (thrownValue instanceof Error) {
+        return thrownValue;
+    }
+
+    if (typeof thrownValue === 'string') {
+        return new Error(thrownValue);
+    }
+
+    const normalizedError = new Error(fallbackMessage);
+    normalizedError.cause = thrownValue;
+    return normalizedError;
+}
+
+/**
+ * Wrap sync work in a `[result, error]` tuple.
+ * @template T
+ * @param {() => T} workFunction
+ * @param {string} [fallbackMessage]
+ * @returns {[T, null] | [null, Error]}
+ */
+function captureSyncResult(workFunction, fallbackMessage) {
+    try {
+        return [workFunction(), null];
+    } catch (thrownValue) {
+        return [null, normalizeGoScriptError(thrownValue, fallbackMessage)];
+    }
+}
+
+/**
+ * Wrap async work in a `[result, error]` tuple.
+ * @template T
+ * @param {() => Promise<T>|T} workFunction
+ * @param {string} [fallbackMessage]
+ * @returns {Promise<[T, null] | [null, Error]>}
+ */
+function captureAsyncResult(workFunction, fallbackMessage) {
+    return Promise.resolve()
+        .then(workFunction)
+        .then(
+            (workResult) => [workResult, null],
+            (thrownValue) => [null, normalizeGoScriptError(thrownValue, fallbackMessage)]
+        );
+}
+
+/**
+ * Convert an existing promise into a `[result, error]` tuple.
+ * @template T
+ * @param {Promise<T>} workPromise
+ * @param {string} [fallbackMessage]
+ * @returns {Promise<[T, null] | [null, Error]>}
+ */
+function promiseToResult(workPromise, fallbackMessage) {
+    return Promise.resolve(workPromise)
+        .then(
+            (workResult) => [workResult, null],
+            (thrownValue) => [null, normalizeGoScriptError(thrownValue, fallbackMessage)]
+        );
+}
+
+/**
+ * Temporarily override a global value while async work runs.
+ * The hot compile path uses this to route stdout without leaving global state behind.
+ * @template T
+ * @param {string} globalKey
+ * @param {*} temporaryValue
+ * @param {() => Promise<T>|T} workFunction
+ * @param {string} [fallbackMessage]
+ * @returns {Promise<[T, null] | [null, Error]>}
+ */
+function withTemporaryGlobal(globalKey, temporaryValue, workFunction, fallbackMessage) {
+    const previousValue = GoScriptGlobal[globalKey];
+    GoScriptGlobal[globalKey] = temporaryValue;
+
+    return captureAsyncResult(workFunction, fallbackMessage).then(([workResult, workError]) => {
+        GoScriptGlobal[globalKey] = previousValue;
+        return [workResult, workError];
+    });
+}
+
+GoScriptGlobal.GoScriptResult = {
+    normalizeGoScriptError,
+    captureSyncResult,
+    captureAsyncResult,
+    promiseToResult,
+    withTemporaryGlobal
+};
 
 /**
  * Personal Website 2025 - Virtual Filesystem
@@ -16,7 +111,7 @@ class VirtualFileSystem {
     constructor() {
         this.files = new Map();
         this.directories = new Set();
-        this.workingDirectory = '/';
+        this.workingDirectory = GoScriptPlatformConstants.vfs.rootPath;
     }
 
     /**
@@ -213,9 +308,9 @@ class VirtualFileSystem {
         }
         
         // Create standard Go directories
-        this.mkdir('/src');
-        this.mkdir('/pkg');
-        this.mkdir('/bin');
+        this.mkdir(GoScriptPlatformConstants.vfs.sourceRootPath);
+        this.mkdir(GoScriptPlatformConstants.vfs.packageRootPath);
+        this.mkdir(GoScriptPlatformConstants.vfs.binaryRootPath);
         
         console.log(`✅ VFS: Loaded ${Object.keys(sourceFiles).length} source files`);
     }
@@ -250,23 +345,27 @@ class VirtualFileSystem {
      * @returns {Object} Module info
      */
     getModuleInfo() {
-        try {
-            const goModContent = this.readFile('/go.mod');
-            const moduleMatch = goModContent.match(/module\s+([^\s\n]+)/);
-            const goVersionMatch = goModContent.match(/go\s+([0-9.]+)/);
-            
+        const [goModContent, readError] = captureSyncResult(
+            () => this.readFile('/go.mod'),
+            'Failed to read go.mod from the virtual filesystem'
+        );
+
+        if (readError) {
             return {
-                name: moduleMatch ? moduleMatch[1] : 'unknown',
-                goVersion: goVersionMatch ? goVersionMatch[1] : '1.21',
-                dependencies: this.parseDependencies(goModContent)
-            };
-        } catch (e) {
-            return {
-                name: 'personal-website-2025',
-                goVersion: '1.21',
+                name: GoScriptPlatformConstants.defaults.moduleName,
+                goVersion: GoScriptPlatformConstants.defaults.goVersion,
                 dependencies: []
             };
         }
+
+        const moduleMatch = goModContent.match(/module\s+([^\s\n]+)/);
+        const goVersionMatch = goModContent.match(/go\s+([0-9.]+)/);
+
+        return {
+            name: moduleMatch ? moduleMatch[1] : 'unknown',
+            goVersion: goVersionMatch ? goVersionMatch[1] : GoScriptPlatformConstants.defaults.goVersion,
+            dependencies: this.parseDependencies(goModContent)
+        };
     }
 
     /**
@@ -382,299 +481,277 @@ class FSPolyfill {
         this.nextFd = 100;
     }
 
+    /**
+     * Convert a VFS payload into bytes for the compiler runtime.
+     * @param {string|Uint8Array|ArrayBuffer} fileContent
+     * @returns {Uint8Array}
+     */
+    toByteArray(fileContent) {
+        if (fileContent instanceof Uint8Array) {
+            return fileContent;
+        }
+
+        if (fileContent instanceof ArrayBuffer) {
+            return new Uint8Array(fileContent);
+        }
+
+        return new TextEncoder().encode(fileContent);
+    }
+
+    /**
+     * Resolve cwd-relative paths into normalized VFS paths.
+     * @param {string} inputPath
+     * @returns {string}
+     */
+    resolvePath(inputPath) {
+        const workingDirectoryPath = this.vfs.workingDirectory.endsWith('/')
+            ? this.vfs.workingDirectory
+            : `${this.vfs.workingDirectory}/`;
+        const candidatePath = inputPath.startsWith('/') ? inputPath : `${workingDirectoryPath}${inputPath}`;
+        return this.vfs.normalizePath(candidatePath);
+    }
+
+    /**
+     * Build a node-style fs error.
+     * @param {string} errorCode
+     * @param {string} [errorMessage]
+     * @returns {Error}
+     */
+    createFsError(errorCode, errorMessage = errorCode) {
+        const filesystemError = new Error(errorMessage);
+        filesystemError.code = errorCode;
+        return filesystemError;
+    }
+
+    /**
+     * Complete a node-style callback from tuple-based logic.
+     * @template T
+     * @param {(error: Error|null, result?: T) => void} callback
+     * @param {() => T} operationFunction
+     * @returns {void}
+     */
+    completeCallback(callback, operationFunction) {
+        const [operationResult, operationError] = captureSyncResult(operationFunction, 'Filesystem operation failed');
+        if (operationError) {
+            callback(operationError);
+            return;
+        }
+
+        callback(null, operationResult);
+    }
+
     patch() {
-        const self = this;
-        const enosys = () => {
-            const err = new Error("not implemented");
-            err.code = "ENOSYS";
-            return err;
+        const filesystemPolyfill = this;
+        const outputDecoder = new TextDecoder();
+        const emitConsoleOutput = (byteSlice) => {
+            const consoleText = outputDecoder.decode(byteSlice);
+            if (GoScriptGlobal.addConsoleOutput) {
+                GoScriptGlobal.addConsoleOutput(consoleText.trimEnd());
+                return;
+            }
+
+            console.log(consoleText);
         };
+        const buildStatRecord = (isDirectoryRecord, entrySize = 0) => ({
+            isDirectory: () => isDirectoryRecord,
+            isFile: () => !isDirectoryRecord,
+            size: entrySize,
+            mode: isDirectoryRecord ? (0o777 | 0o40000) : 0o666,
+            dev: 0,
+            ino: 0,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+            blksize: 4096,
+            blocks: 0,
+            atimeMs: Date.now(),
+            mtimeMs: Date.now(),
+            ctimeMs: Date.now()
+        });
 
         globalThis.fs = {
             constants: { O_WRONLY: 1, O_RDWR: 2, O_CREAT: 64, O_TRUNC: 512, O_APPEND: 1024, O_EXCL: 128, O_DIRECTORY: 65536 },
             
-            writeSync(fd, buf) {
-                if (fd === 1 || fd === 2) {
-                    const text = new TextDecoder().decode(buf);
-                    if (GoScriptGlobal.addConsoleOutput) {
-                        GoScriptGlobal.addConsoleOutput(text.trimEnd());
-                    } else {
-                        console.log(text);
-                    }
-                    return buf.length;
+            writeSync(fileDescriptor, byteBuffer) {
+                if (fileDescriptor === 1 || fileDescriptor === 2) {
+                    emitConsoleOutput(byteBuffer);
+                    return byteBuffer.length;
                 }
-                
-                const file = self.fds.get(fd);
-                if (!file) throw new Error("EBADF");
-                
-                // Append to file content
-                const newContent = new Uint8Array(file.content.length + buf.length);
-                newContent.set(file.content);
-                newContent.set(buf, file.content.length);
-                file.content = newContent;
-                
-                // Sync to VFS immediately
-                self.vfs.writeFile(file.path, file.content);
-                
-                return buf.length;
+
+                const fileRecord = filesystemPolyfill.fds.get(fileDescriptor);
+                if (!fileRecord) {
+                    throw filesystemPolyfill.createFsError('EBADF');
+                }
+
+                const mergedContent = new Uint8Array(fileRecord.content.length + byteBuffer.length);
+                mergedContent.set(fileRecord.content);
+                mergedContent.set(byteBuffer, fileRecord.content.length);
+                fileRecord.content = mergedContent;
+
+                // Keep the VFS in sync so compile/link output is visible immediately.
+                filesystemPolyfill.vfs.writeFile(fileRecord.path, fileRecord.content);
+                return byteBuffer.length;
             },
 
-            write(fd, buf, offset, length, position, callback) {
-                try {
-                    if (fd === 1 || fd === 2) {
-                        const text = new TextDecoder().decode(buf.subarray(offset, offset + length));
-                        if (GoScriptGlobal.addConsoleOutput) {
-                            GoScriptGlobal.addConsoleOutput(text.trimEnd());
-                        } else {
-                            console.log(text);
-                        }
-                        callback(null, length);
-                        return;
+            write(fileDescriptor, byteBuffer, byteOffset, byteLength, writePosition, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    if (fileDescriptor === 1 || fileDescriptor === 2) {
+                        emitConsoleOutput(byteBuffer.subarray(byteOffset, byteOffset + byteLength));
+                        return byteLength;
                     }
-                    
-                    const file = self.fds.get(fd);
-                    if (!file) { callback(new Error("EBADF")); return; }
-                    
-                    const data = buf.subarray(offset, offset + length);
-                    let pos = position !== null ? position : file.position;
-                    
-                    // Expand file if needed
-                    if (pos + length > file.content.length) {
-                        const newContent = new Uint8Array(pos + length);
-                        newContent.set(file.content);
-                        file.content = newContent;
-                    }
-                    
-                    file.content.set(data, pos);
-                    if (position === null) {
-                        file.position = pos + length;
-                    }
-                    
-                    // Sync to VFS
-                    self.vfs.writeFile(file.path, file.content);
-                    
-                    callback(null, length);
-                } catch (e) {
-                    callback(e);
-                }
-            },
 
-            open(path, flags, mode, callback) {
-                try {
-                    // Handle relative paths
-                    if (!path.startsWith('/')) {
-                        path = self.vfs.workingDirectory + (self.vfs.workingDirectory.endsWith('/') ? '' : '/') + path;
+                    const fileRecord = filesystemPolyfill.fds.get(fileDescriptor);
+                    if (!fileRecord) {
+                        throw filesystemPolyfill.createFsError('EBADF');
                     }
-                    path = self.vfs.normalizePath(path);
 
-                    let content = new Uint8Array(0);
-                    if (self.vfs.exists(path)) {
-                        const vfsContent = self.vfs.readFile(path);
-                        if (typeof vfsContent === 'string') {
-                            content = new TextEncoder().encode(vfsContent);
-                        } else {
-                            content = vfsContent;
-                        }
-                    } else {
-                        if (!(flags & 64)) { // O_CREAT
-                            const err = new Error("ENOENT");
-                            err.code = "ENOENT";
-                            callback(err);
-                            return;
-                        }
-                    }
-                    
-                    if (flags & 512) { // O_TRUNC
-                        content = new Uint8Array(0);
-                    }
-                    
-                    const fd = self.nextFd++;
-                    self.fds.set(fd, {
-                        path,
-                        flags,
-                        content,
-                        position: 0
-                    });
-                    
-                    callback(null, fd);
-                } catch (e) {
-                    callback(e);
-                }
-            },
+                    const writeChunk = byteBuffer.subarray(byteOffset, byteOffset + byteLength);
+                    const targetOffset = writePosition !== null ? writePosition : fileRecord.position;
 
-            read(fd, buffer, offset, length, position, callback) {
-                try {
-                    const file = self.fds.get(fd);
-                    if (!file) { callback(new Error("EBADF")); return; }
-                    
-                    let pos = position !== null ? position : file.position;
-                    
-                    if (pos >= file.content.length) {
-                        callback(null, 0);
-                        return;
+                    if (targetOffset + byteLength > fileRecord.content.length) {
+                        const grownContent = new Uint8Array(targetOffset + byteLength);
+                        grownContent.set(fileRecord.content);
+                        fileRecord.content = grownContent;
                     }
-                    
-                    const end = Math.min(pos + length, file.content.length);
-                    const bytesRead = end - pos;
-                    
-                    buffer.set(file.content.subarray(pos, end), offset);
-                    
-                    if (position === null) {
-                        file.position += bytesRead;
+
+                    fileRecord.content.set(writeChunk, targetOffset);
+                    if (writePosition === null) {
+                        fileRecord.position = targetOffset + byteLength;
                     }
-                    
-                    callback(null, bytesRead);
-                } catch (e) {
-                    callback(e);
-                }
-            },
 
-            close(fd, callback) {
-                const file = self.fds.get(fd);
-                if (file) {
-                    self.fds.delete(fd);
-                }
-                callback(null);
-            },
-
-            fstat(fd, callback) {
-                const file = self.fds.get(fd);
-                if (!file) { callback(new Error("EBADF")); return; }
-                callback(null, {
-                    isDirectory: () => false,
-                    isFile: () => true,
-                    size: file.content.length,
-                    mode: 0o666,
-                    dev: 0,
-                    ino: 0,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                    blksize: 4096,
-                    blocks: 0,
-                    atimeMs: Date.now(),
-                    mtimeMs: Date.now(),
-                    ctimeMs: Date.now()
+                    filesystemPolyfill.vfs.writeFile(fileRecord.path, fileRecord.content);
+                    return byteLength;
                 });
             },
 
-            stat(path, callback) {
-                try {
-                    if (!path.startsWith('/')) {
-                        path = self.vfs.workingDirectory + (self.vfs.workingDirectory.endsWith('/') ? '' : '/') + path;
+            open(inputPath, openFlags, _mode, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    const resolvedPath = filesystemPolyfill.resolvePath(inputPath);
+                    let fileContent = new Uint8Array(0);
+
+                    if (filesystemPolyfill.vfs.exists(resolvedPath)) {
+                        const existingContent = filesystemPolyfill.vfs.readFile(resolvedPath);
+                        fileContent = filesystemPolyfill.toByteArray(existingContent);
+                    } else if (!(openFlags & globalThis.fs.constants.O_CREAT)) {
+                        throw filesystemPolyfill.createFsError('ENOENT');
                     }
-                    path = self.vfs.normalizePath(path);
 
-                    if (self.vfs.exists(path)) {
-                         const content = self.vfs.readFile(path);
-                         const size = content.length;
-                         callback(null, {
-                             isDirectory: () => false,
-                             isFile: () => true,
-                             size: size,
-                             mode: 0o666,
-                             dev: 0,
-                             ino: 0,
-                             nlink: 1,
-                             uid: 0,
-                             gid: 0,
-                             rdev: 0,
-                             blksize: 4096,
-                             blocks: 0,
-                             atimeMs: Date.now(),
-                             mtimeMs: Date.now(),
-                             ctimeMs: Date.now()
-                         });
-                    } else if (self.vfs.directories.has(path) || path === '/') {
-                        callback(null, {
-                            isDirectory: () => true,
-                            isFile: () => false,
-                            size: 0,
-                            mode: 0o777 | 0o40000, // Add directory bit
-                            dev: 0,
-                            ino: 0,
-                            nlink: 1,
-                            uid: 0,
-                            gid: 0,
-                            rdev: 0,
-                            blksize: 4096,
-                            blocks: 0,
-                            atimeMs: Date.now(),
-                            mtimeMs: Date.now(),
-                            ctimeMs: Date.now()
-                        });
-                    } else {
-                        const err = new Error("ENOENT");
-                        err.code = "ENOENT";
-                        callback(err);
+                    if (openFlags & globalThis.fs.constants.O_TRUNC) {
+                        fileContent = new Uint8Array(0);
                     }
-                } catch (e) {
-                    callback(e);
-                }
+
+                    const allocatedFileDescriptor = filesystemPolyfill.nextFd++;
+                    filesystemPolyfill.fds.set(allocatedFileDescriptor, {
+                        path: resolvedPath,
+                        flags: openFlags,
+                        content: fileContent,
+                        position: 0
+                    });
+
+                    return allocatedFileDescriptor;
+                });
             },
 
-            lstat(path, callback) {
-                this.stat(path, callback);
+            read(fileDescriptor, targetBuffer, targetOffset, requestedLength, readPosition, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    const fileRecord = filesystemPolyfill.fds.get(fileDescriptor);
+                    if (!fileRecord) {
+                        throw filesystemPolyfill.createFsError('EBADF');
+                    }
+
+                    const currentOffset = readPosition !== null ? readPosition : fileRecord.position;
+                    if (currentOffset >= fileRecord.content.length) {
+                        return 0;
+                    }
+
+                    const endOffset = Math.min(currentOffset + requestedLength, fileRecord.content.length);
+                    const bytesReadCount = endOffset - currentOffset;
+                    targetBuffer.set(fileRecord.content.subarray(currentOffset, endOffset), targetOffset);
+
+                    if (readPosition === null) {
+                        fileRecord.position += bytesReadCount;
+                    }
+
+                    return bytesReadCount;
+                });
             },
 
-            mkdir(path, perm, callback) {
-                try {
-                    self.vfs.mkdir(path);
-                    callback(null);
-                } catch (e) {
-                    callback(e);
-                }
+            close(fileDescriptor, callback) {
+                filesystemPolyfill.fds.delete(fileDescriptor);
+                callback(null);
             },
 
-            readdir(path, callback) {
-                try {
-                    const files = self.vfs.listDir(path);
-                    callback(null, files);
-                } catch (e) {
-                    callback(e);
+            fstat(fileDescriptor, callback) {
+                const fileRecord = filesystemPolyfill.fds.get(fileDescriptor);
+                if (!fileRecord) {
+                    callback(filesystemPolyfill.createFsError('EBADF'));
+                    return;
                 }
+
+                callback(null, buildStatRecord(false, fileRecord.content.length));
+            },
+
+            stat(inputPath, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    const resolvedPath = filesystemPolyfill.resolvePath(inputPath);
+                    if (filesystemPolyfill.vfs.exists(resolvedPath)) {
+                        const storedContent = filesystemPolyfill.vfs.readFile(resolvedPath);
+                        return buildStatRecord(false, filesystemPolyfill.vfs.getContentSize(storedContent));
+                    }
+
+                    if (filesystemPolyfill.vfs.directories.has(resolvedPath) || resolvedPath === '/') {
+                        return buildStatRecord(true, 0);
+                    }
+
+                    throw filesystemPolyfill.createFsError('ENOENT');
+                });
+            },
+
+            lstat(inputPath, callback) {
+                this.stat(inputPath, callback);
+            },
+
+            mkdir(inputPath, _permissions, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    filesystemPolyfill.vfs.mkdir(inputPath);
+                });
+            },
+
+            readdir(inputPath, callback) {
+                filesystemPolyfill.completeCallback(callback, () => filesystemPolyfill.vfs.listDir(inputPath));
             },
             
-            unlink(path, callback) {
-                try {
-                    self.vfs.unlink(path);
-                    callback(null);
-                } catch (e) {
-                    callback(e);
-                }
+            unlink(inputPath, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    filesystemPolyfill.vfs.unlink(inputPath);
+                });
             },
             
-            rename(from, to, callback) {
-                try {
-                    self.vfs.rename(from, to);
-                    callback(null);
-                } catch (e) {
-                    callback(e);
-                }
+            rename(sourcePath, targetPath, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    filesystemPolyfill.vfs.rename(sourcePath, targetPath);
+                });
             },
             
-            rmdir(path, callback) {
-                try {
-                    self.vfs.rmdir(path);
-                    callback(null);
-                } catch (e) {
-                    callback(e);
-                }
+            rmdir(inputPath, callback) {
+                filesystemPolyfill.completeCallback(callback, () => {
+                    filesystemPolyfill.vfs.rmdir(inputPath);
+                });
             }
         };
 
         // Patch process
         if (!globalThis.process) globalThis.process = {};
-        globalThis.process.cwd = () => self.vfs.workingDirectory;
-        globalThis.process.chdir = (path) => {
-            const normalizedPath = self.vfs.normalizePath(path);
-            if (normalizedPath !== '/' && !self.vfs.isDirectory(normalizedPath)) {
-                const err = new Error(`ENOENT: no such directory, chdir '${path}'`);
+        globalThis.process.cwd = () => filesystemPolyfill.vfs.workingDirectory;
+        globalThis.process.chdir = (inputPath) => {
+            const normalizedPath = filesystemPolyfill.vfs.normalizePath(inputPath);
+            if (normalizedPath !== '/' && !filesystemPolyfill.vfs.isDirectory(normalizedPath)) {
+                const err = new Error(`ENOENT: no such directory, chdir '${inputPath}'`);
                 err.code = 'ENOENT';
                 throw err;
             }
-            self.vfs.workingDirectory = normalizedPath;
+            filesystemPolyfill.vfs.workingDirectory = normalizedPath;
         };
     }
 }
@@ -691,8 +768,8 @@ GoScriptGlobal.FSPolyfill = FSPolyfill;
 
 class CacheManager {
     constructor() {
-        this.dbName = 'PersonalWebsite2025Cache';
-        this.dbVersion = 1;
+        this.dbName = GoScriptPlatformConstants.cache.sourceDatabaseName;
+        this.dbVersion = GoScriptPlatformConstants.cache.sourceDatabaseVersion;
         this.db = null;
         this.ready = false;
     }
@@ -723,18 +800,18 @@ class CacheManager {
                 const db = event.target.result;
                 
                 // Create object stores
-                if (!db.objectStoreNames.contains('sourceFiles')) {
-                    const sourceStore = db.createObjectStore('sourceFiles', { keyPath: 'key' });
+                if (!db.objectStoreNames.contains(GoScriptPlatformConstants.cache.sourceFilesStore)) {
+                    const sourceStore = db.createObjectStore(GoScriptPlatformConstants.cache.sourceFilesStore, { keyPath: 'key' });
                     sourceStore.createIndex('timestamp', 'timestamp', { unique: false });
                 }
                 
-                if (!db.objectStoreNames.contains('compiledWasm')) {
-                    const wasmStore = db.createObjectStore('compiledWasm', { keyPath: 'key' });
+                if (!db.objectStoreNames.contains(GoScriptPlatformConstants.cache.compiledWasmStore)) {
+                    const wasmStore = db.createObjectStore(GoScriptPlatformConstants.cache.compiledWasmStore, { keyPath: 'key' });
                     wasmStore.createIndex('timestamp', 'timestamp', { unique: false });
                 }
                 
-                if (!db.objectStoreNames.contains('metadata')) {
-                    db.createObjectStore('metadata', { keyPath: 'key' });
+                if (!db.objectStoreNames.contains(GoScriptPlatformConstants.cache.metadataStore)) {
+                    db.createObjectStore(GoScriptPlatformConstants.cache.metadataStore, { keyPath: 'key' });
                 }
                 
                 console.log('📊 CacheManager: Created object stores');
@@ -753,8 +830,8 @@ class CacheManager {
         
         console.log(`💾 CacheManager: Caching source files for commit ${commitHash}`);
         
-        const transaction = this.db.transaction(['sourceFiles'], 'readwrite');
-        const store = transaction.objectStore('sourceFiles');
+        const transaction = this.db.transaction([GoScriptPlatformConstants.cache.sourceFilesStore], 'readwrite');
+        const store = transaction.objectStore(GoScriptPlatformConstants.cache.sourceFilesStore);
         
         const cacheEntry = {
             key: `sources_${commitHash}`,
@@ -787,8 +864,8 @@ class CacheManager {
     async getCachedSourceFiles(commitHash) {
         if (!this.ready) await this.init();
         
-        const transaction = this.db.transaction(['sourceFiles'], 'readonly');
-        const store = transaction.objectStore('sourceFiles');
+        const transaction = this.db.transaction([GoScriptPlatformConstants.cache.sourceFilesStore], 'readonly');
+        const store = transaction.objectStore(GoScriptPlatformConstants.cache.sourceFilesStore);
         
         return new Promise((resolve, reject) => {
             const request = store.get(`sources_${commitHash}`);
@@ -823,8 +900,8 @@ class CacheManager {
         
         console.log(`💾 CacheManager: Caching WASM binary (${wasmBinary.byteLength} bytes)`);
         
-        const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
-        const store = transaction.objectStore('compiledWasm');
+        const transaction = this.db.transaction([GoScriptPlatformConstants.cache.compiledWasmStore], 'readwrite');
+        const store = transaction.objectStore(GoScriptPlatformConstants.cache.compiledWasmStore);
         
         const cacheEntry = {
             key: `wasm_${sourceHash}`,
@@ -858,8 +935,8 @@ class CacheManager {
     async getCachedWasm(sourceHash) {
         if (!this.ready) await this.init();
         
-        const transaction = this.db.transaction(['compiledWasm'], 'readonly');
-        const store = transaction.objectStore('compiledWasm');
+        const transaction = this.db.transaction([GoScriptPlatformConstants.cache.compiledWasmStore], 'readonly');
+        const store = transaction.objectStore(GoScriptPlatformConstants.cache.compiledWasmStore);
         
         return new Promise((resolve, reject) => {
             const request = store.get(`wasm_${sourceHash}`);
@@ -921,7 +998,7 @@ class CacheManager {
         console.log('🧹 CacheManager: Clearing old cache entries...');
         
         const cutoffTime = Date.now() - maxAge;
-        const stores = ['sourceFiles', 'compiledWasm'];
+        const stores = [GoScriptPlatformConstants.cache.sourceFilesStore, GoScriptPlatformConstants.cache.compiledWasmStore];
         
         await Promise.all(stores.map((storeName) => new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
@@ -974,8 +1051,8 @@ class CacheManager {
         });
 
         const [sourceFiles, compiledWasm] = await Promise.all([
-            countStore('sourceFiles'),
-            countStore('compiledWasm')
+            countStore(GoScriptPlatformConstants.cache.sourceFilesStore),
+            countStore(GoScriptPlatformConstants.cache.compiledWasmStore)
         ]);
 
         return {
@@ -996,8 +1073,8 @@ class CacheManager {
         console.log('🧹 CacheManager: Clearing compiled WASM cache...');
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
-            const request = transaction.objectStore('compiledWasm').clear();
+            const transaction = this.db.transaction([GoScriptPlatformConstants.cache.compiledWasmStore], 'readwrite');
+            const request = transaction.objectStore(GoScriptPlatformConstants.cache.compiledWasmStore).clear();
 
             request.onsuccess = () => {
                 console.log('✅ CacheManager: Compiled WASM cache cleared');
@@ -1025,8 +1102,8 @@ class CacheManager {
         console.log(`🧹 CacheManager: Clearing compiled WASM cache entry ${cacheKey}...`);
 
         return new Promise((resolve, reject) => {
-            const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
-            const store = transaction.objectStore('compiledWasm');
+            const transaction = this.db.transaction([GoScriptPlatformConstants.cache.compiledWasmStore], 'readwrite');
+            const store = transaction.objectStore(GoScriptPlatformConstants.cache.compiledWasmStore);
             const getRequest = store.get(cacheKey);
 
             getRequest.onerror = () => reject(getRequest.error || new Error('Failed to inspect compiled WASM cache entry'));
@@ -1061,19 +1138,19 @@ class CacheManager {
         
         console.log('🗑️ CacheManager: Clearing all cache data...');
         
-        const transaction = this.db.transaction(['sourceFiles', 'compiledWasm', 'metadata'], 'readwrite');
+        const transaction = this.db.transaction([GoScriptPlatformConstants.cache.sourceFilesStore, GoScriptPlatformConstants.cache.compiledWasmStore, GoScriptPlatformConstants.cache.metadataStore], 'readwrite');
         
         const promises = [
             new Promise(resolve => {
-                const request = transaction.objectStore('sourceFiles').clear();
+                const request = transaction.objectStore(GoScriptPlatformConstants.cache.sourceFilesStore).clear();
                 request.onsuccess = () => resolve();
             }),
             new Promise(resolve => {
-                const request = transaction.objectStore('compiledWasm').clear();
+                const request = transaction.objectStore(GoScriptPlatformConstants.cache.compiledWasmStore).clear();
                 request.onsuccess = () => resolve();
             }),
             new Promise(resolve => {
-                const request = transaction.objectStore('metadata').clear();
+                const request = transaction.objectStore(GoScriptPlatformConstants.cache.metadataStore).clear();
                 request.onsuccess = () => resolve();
             })
         ];
@@ -1108,9 +1185,9 @@ class ToolchainLoader {
         this.packageDataStart = 0;
         
         // Cache configuration
-        this.dbName = 'GoScriptCache';
-        this.storeName = 'toolchain';
-        this.cacheVersion = 1;
+        this.dbName = GoScriptPlatformConstants.cache.toolchainDatabaseName;
+        this.storeName = GoScriptPlatformConstants.cache.toolchainStore;
+        this.cacheVersion = GoScriptPlatformConstants.cache.toolchainDatabaseVersion;
     }
 
     /**
@@ -1141,26 +1218,30 @@ class ToolchainLoader {
      * @returns {Promise<ArrayBuffer|null>}
      */
     async getCached(url) {
-        try {
-            const db = await this.openDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(this.storeName, 'readonly');
-                const store = tx.objectStore(this.storeName);
-                const request = store.get(url);
-                
-                request.onerror = () => {
-                    db.close();
-                    reject(request.error);
-                };
-                request.onsuccess = () => {
-                    db.close();
-                    resolve(request.result || null);
-                };
-            });
-        } catch (e) {
+        const [databaseHandle, openError] = await captureAsyncResult(
+            () => this.openDB(),
+            'Failed to open the toolchain cache'
+        );
+
+        if (openError) {
             console.warn('📦 ToolchainLoader: IndexedDB not available, skipping cache');
             return null;
         }
+
+        return new Promise((resolve, reject) => {
+            const readTransaction = databaseHandle.transaction(this.storeName, 'readonly');
+            const toolchainStore = readTransaction.objectStore(this.storeName);
+            const getRequest = toolchainStore.get(url);
+            
+            getRequest.onerror = () => {
+                databaseHandle.close();
+                reject(getRequest.error);
+            };
+            getRequest.onsuccess = () => {
+                databaseHandle.close();
+                resolve(getRequest.result || null);
+            };
+        });
     }
 
     /**
@@ -1171,25 +1252,30 @@ class ToolchainLoader {
      * @returns {Promise<void>}
      */
     async setCache(url, data) {
-        try {
-            const db = await this.openDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(this.storeName, 'readwrite');
-                const store = tx.objectStore(this.storeName);
-                const request = store.put(data, url);
-                
-                request.onerror = () => {
-                    db.close();
-                    reject(request.error);
-                };
-                request.onsuccess = () => {
-                    db.close();
-                    resolve();
-                };
-            });
-        } catch (e) {
-            console.warn('📦 ToolchainLoader: Failed to cache pack:', e.message);
+        const [databaseHandle, openError] = await captureAsyncResult(
+            () => this.openDB(),
+            'Failed to open the toolchain cache for writing'
+        );
+
+        if (openError) {
+            console.warn('📦 ToolchainLoader: Failed to cache pack:', openError.message);
+            return;
         }
+
+        return new Promise((resolve, reject) => {
+            const writeTransaction = databaseHandle.transaction(this.storeName, 'readwrite');
+            const toolchainStore = writeTransaction.objectStore(this.storeName);
+            const putRequest = toolchainStore.put(data, url);
+            
+            putRequest.onerror = () => {
+                databaseHandle.close();
+                reject(putRequest.error);
+            };
+            putRequest.onsuccess = () => {
+                databaseHandle.close();
+                resolve();
+            };
+        });
     }
 
     /**
@@ -1199,25 +1285,30 @@ class ToolchainLoader {
      * @returns {Promise<void>}
      */
     async deleteCache(url) {
-        try {
-            const db = await this.openDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(this.storeName, 'readwrite');
-                const store = tx.objectStore(this.storeName);
-                const request = store.delete(url);
+        const [databaseHandle, openError] = await captureAsyncResult(
+            () => this.openDB(),
+            'Failed to open the toolchain cache for deletion'
+        );
 
-                request.onerror = () => {
-                    db.close();
-                    reject(request.error);
-                };
-                request.onsuccess = () => {
-                    db.close();
-                    resolve();
-                };
-            });
-        } catch (e) {
-            console.warn('📦 ToolchainLoader: Failed to delete cached pack:', e.message);
+        if (openError) {
+            console.warn('📦 ToolchainLoader: Failed to delete cached pack:', openError.message);
+            return;
         }
+
+        return new Promise((resolve, reject) => {
+            const writeTransaction = databaseHandle.transaction(this.storeName, 'readwrite');
+            const toolchainStore = writeTransaction.objectStore(this.storeName);
+            const deleteRequest = toolchainStore.delete(url);
+
+            deleteRequest.onerror = () => {
+                databaseHandle.close();
+                reject(deleteRequest.error);
+            };
+            deleteRequest.onsuccess = () => {
+                databaseHandle.close();
+                resolve();
+            };
+        });
     }
 
     /**
@@ -1225,34 +1316,38 @@ class ToolchainLoader {
      * @param {string} url - URL to goscript.pack file
      * @returns {Promise<void>}
      */
-    async load(url = 'assets/goscript.pack') {
+    async load(url = GoScriptPlatformConstants.toolchain.defaultPackUrl) {
         // Try to load from IndexedDB cache first
         console.log('📦 ToolchainLoader: Checking cache for GoScript toolchain...');
-        const cached = await this.getCached(url);
+        const cachedPackData = await this.getCached(url);
         
-        if (cached) {
-            console.log(`✅ ToolchainLoader: Loaded from cache (${(cached.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-            try {
-                this.packData = cached;
-                this.parseToolchain();
-                this.loaded = true;
-                console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
-                return;
-            } catch (error) {
-                console.warn(`⚠️ ToolchainLoader: Cached goscript.pack is invalid, deleting cache entry for ${url}`);
-                await this.deleteCache(url);
-                this.resetState();
-
-                try {
-                    await this.downloadAndParse(url);
-                    return;
-                } catch (downloadError) {
-                    throw this.buildCachedPackRecoveryError(url, error, downloadError);
-                }
-            }
-        } else {
+        if (!cachedPackData) {
             await this.downloadAndParse(url);
             return;
+        }
+
+        console.log(`✅ ToolchainLoader: Loaded from cache (${(cachedPackData.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+        const [cachedParseResult, cachedParseError] = await captureAsyncResult(
+            () => this.parseAndStorePack(cachedPackData),
+            `Failed to parse cached goscript.pack from ${url}`
+        );
+
+        if (!cachedParseError) {
+            this.loaded = true;
+            this.logReadyState();
+            return cachedParseResult;
+        }
+
+        console.warn(`⚠️ ToolchainLoader: Cached goscript.pack is invalid, deleting cache entry for ${url}`);
+        await this.deleteCache(url);
+        this.resetState();
+
+        const [, downloadError] = await captureAsyncResult(
+            () => this.downloadAndParse(url),
+            `Failed to refresh goscript.pack from ${url}`
+        );
+        if (downloadError) {
+            throw this.buildCachedPackRecoveryError(url, cachedParseError, downloadError);
         }
     }
 
@@ -1265,32 +1360,32 @@ class ToolchainLoader {
     async downloadAndParse(url) {
         console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
 
-        let response;
-        try {
-            response = await fetch(url);
-        } catch (error) {
-            throw this.buildFetchError(url, error);
+        const [response, fetchError] = await promiseToResult(fetch(url), `Failed to fetch goscript.pack from ${url}`);
+        if (fetchError) {
+            throw this.buildFetchError(url, fetchError);
         }
 
         if (!response.ok) {
             throw this.buildHttpError(url, response.status, response.statusText);
         }
 
-        let packData;
-        try {
-            packData = await response.arrayBuffer();
-        } catch (error) {
-            throw new Error(`Failed to read goscript.pack from ${url}. The download did not complete successfully. ${error.message}`);
+        const [packData, packReadError] = await promiseToResult(
+            response.arrayBuffer(),
+            `Failed to read goscript.pack from ${url}`
+        );
+        if (packReadError) {
+            throw new Error(`Failed to read goscript.pack from ${url}. The download did not complete successfully. ${packReadError.message}`);
         }
 
         console.log(`📦 ToolchainLoader: Downloaded ${(packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
 
-        try {
-            this.packData = packData;
-            this.parseToolchain();
-        } catch (error) {
+        const [, parseError] = await captureAsyncResult(
+            () => this.parseAndStorePack(packData),
+            `Failed to parse goscript.pack from ${url}`
+        );
+        if (parseError) {
             this.resetState();
-            throw this.buildInvalidPackError(url, packData, error, false);
+            throw this.buildInvalidPackError(url, packData, parseError, false);
         }
 
         // Cache only after validation succeeds.
@@ -1299,7 +1394,7 @@ class ToolchainLoader {
         console.log('✅ ToolchainLoader: Toolchain cached successfully');
 
         this.loaded = true;
-        console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+        this.logReadyState();
     }
 
     /**
@@ -1313,12 +1408,13 @@ class ToolchainLoader {
             throw new Error('Local goscript.pack import requires an ArrayBuffer.');
         }
 
-        try {
-            this.packData = packData;
-            this.parseToolchain();
-        } catch (error) {
+        const [, parseError] = await captureAsyncResult(
+            () => this.parseAndStorePack(packData),
+            `Failed to parse imported goscript.pack from ${cacheKey}`
+        );
+        if (parseError) {
             this.resetState();
-            throw this.buildInvalidPackError(cacheKey, packData, error, false);
+            throw this.buildInvalidPackError(cacheKey, packData, parseError, false);
         }
 
         console.log(`📦 ToolchainLoader: Imported local goscript.pack (${(packData.byteLength / 1024 / 1024).toFixed(2)} MB)`);
@@ -1327,7 +1423,7 @@ class ToolchainLoader {
         console.log('✅ ToolchainLoader: Imported toolchain cached successfully');
 
         this.loaded = true;
-        console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+        this.logReadyState();
     }
 
     /**
@@ -1335,26 +1431,31 @@ class ToolchainLoader {
      * @returns {Promise<void>}
      */
     async clearCache() {
-        try {
-            const db = await this.openDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction(this.storeName, 'readwrite');
-                const store = tx.objectStore(this.storeName);
-                const request = store.clear();
-                
-                request.onerror = () => {
-                    db.close();
-                    reject(request.error);
-                };
-                request.onsuccess = () => {
-                    db.close();
-                    console.log('🗑️ ToolchainLoader: Cache cleared');
-                    resolve();
-                };
-            });
-        } catch (e) {
-            console.warn('📦 ToolchainLoader: Failed to clear cache:', e.message);
+        const [databaseHandle, openError] = await captureAsyncResult(
+            () => this.openDB(),
+            'Failed to open the toolchain cache for clearing'
+        );
+
+        if (openError) {
+            console.warn('📦 ToolchainLoader: Failed to clear cache:', openError.message);
+            return;
         }
+
+        return new Promise((resolve, reject) => {
+            const clearTransaction = databaseHandle.transaction(this.storeName, 'readwrite');
+            const toolchainStore = clearTransaction.objectStore(this.storeName);
+            const clearRequest = toolchainStore.clear();
+            
+            clearRequest.onerror = () => {
+                databaseHandle.close();
+                reject(clearRequest.error);
+            };
+            clearRequest.onsuccess = () => {
+                databaseHandle.close();
+                console.log('🗑️ ToolchainLoader: Cache cleared');
+                resolve();
+            };
+        });
     }
 
     /**
@@ -1369,6 +1470,27 @@ class ToolchainLoader {
         this.packageNames = [];
         this.loaded = false;
         this.packageDataStart = 0;
+    }
+
+    /**
+     * Parse pack bytes into the active loader state.
+     * @private
+     * @param {ArrayBuffer} packData
+     */
+    parseAndStorePack(packData) {
+        this.packData = packData;
+        this.parseToolchain();
+    }
+
+    /**
+     * Log the current ready state once parse/load has succeeded.
+     * @private
+     */
+    logReadyState() {
+        console.log(
+            `✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ` +
+            `linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`
+        );
     }
 
     /**
@@ -1600,12 +1722,12 @@ class ToolchainLoader {
         let totalBytes = 0;
         for (const [name, entry] of this.packageIndex) {
             const data = new Uint8Array(this.packData, entry.offset, entry.size);
-            vfs.writeFile(`/pkg/js_wasm/${name}.a`, data);
+            vfs.writeFile(`${GoScriptPlatformConstants.vfs.jsWasmPackagePath}/${name}.a`, data);
             loaded++;
             totalBytes += entry.size;
         }
         
-        console.log(`✅ ToolchainLoader: Extracted ${loaded} packages (${(totalBytes / 1024 / 1024).toFixed(1)} MB) to /pkg/js_wasm/`);
+        console.log(`✅ ToolchainLoader: Extracted ${loaded} packages (${(totalBytes / 1024 / 1024).toFixed(1)} MB) to ${GoScriptPlatformConstants.vfs.jsWasmPackagePath}/`);
     }
 
     /**
@@ -1630,4 +1752,6 @@ class ToolchainLoader {
 
 // Export for use in other modules
 GoScriptGlobal.ToolchainLoader = ToolchainLoader;
+
+
 

@@ -88,13 +88,14 @@ runButton.addEventListener('click', async () => {
   outputEl.textContent = '';
   statusEl.textContent = 'Compiling...';
 
-  try {
-    const result = await gs.runCode(sourceEl.value);
-    statusEl.textContent = `Done in ${result.compileTime}ms`;
-  } catch (error) {
+  const resultTuple = await gs.compileAndRun(sourceEl.value);
+  if (!resultTuple.success) {
     statusEl.textContent = 'Failed';
-    outputEl.textContent += error.message;
+    outputEl.textContent += resultTuple.error;
+    return;
   }
+
+  statusEl.textContent = `Done in ${resultTuple.compileResult.metadata.compileTime}ms`;
 });
 ```
 
@@ -132,23 +133,33 @@ const gs = await GoScript.create({
 import { useEffect, useRef, useState } from 'react';
 import GoScript from 'goscript';
 
+const toResult = (promise) => promise.then(
+  (value) => [value, null],
+  (error) => [null, error]
+);
+
 export function GoRunner() {
   const sdkRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [output, setOutput] = useState('');
 
   useEffect(() => {
-    GoScript.create({
-      packUrl: '/goscript.pack',
-      stdout: (text) => {
-        setOutput((current) => current + text);
+    (async () => {
+      const [gs, initError] = await toResult(GoScript.create({
+        packUrl: '/goscript.pack',
+        stdout: (text) => {
+          setOutput((current) => current + text);
+        }
+      }));
+
+      if (initError) {
+        setOutput(`Init failed: ${initError.message}`);
+        return;
       }
-    }).then((gs) => {
+
       sdkRef.current = gs;
       setReady(true);
-    }).catch((error) => {
-      setOutput(`Init failed: ${error.message}`);
-    });
+    })();
   }, []);
 
   async function run() {
@@ -158,8 +169,7 @@ export function GoRunner() {
 
     setOutput('');
 
-    try {
-      await sdkRef.current.runCode(`
+    const runResult = await sdkRef.current.compileAndRun(`
 package main
 
 import "fmt"
@@ -168,8 +178,8 @@ func main() {
     fmt.Println("Hello from React")
 }
 `);
-    } catch (error) {
-      setOutput(error.message);
+    if (!runResult.success) {
+      setOutput(runResult.error);
     }
   }
 

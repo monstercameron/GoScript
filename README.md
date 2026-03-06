@@ -96,6 +96,7 @@ Notes:
 
 The current source layout is intentionally flat:
 
+- [src/constants.js](C:\Users\Cam\Desktop\GoScript\src\constants.js): shared runtime constants for paths, cache names, defaults, and build statuses
 - [src/platform.js](C:\Users\Cam\Desktop\GoScript\src\platform.js): virtual filesystem, fs bridge, cache, toolchain loader
 - [src/engine.js](C:\Users\Cam\Desktop\GoScript\src\engine.js): compilation manager and runtime execution
 - [src/goscript-sdk.js](C:\Users\Cam\Desktop\GoScript\src\goscript-sdk.js): public SDK

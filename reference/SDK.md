@@ -290,16 +290,14 @@ await gs.init();
 ### Error Handling
 
 ```javascript
-try {
-    const result = await gs.compile(`
+const result = await gs.compileAndRun(`
         package main
         func main() {
             fmt.Println("Missing import!")
         }
     `);
-    await gs.run(result.wasm);
-} catch (error) {
-    console.error('Compilation or execution failed:', error.message);
+if (!result.success) {
+    console.error('Compilation or execution failed:', result.error);
 }
 ```
 

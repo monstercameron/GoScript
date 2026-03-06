@@ -1,9 +1,11 @@
 (function () {
+    const RUNTIME_CONSTANTS = window.GoScriptConstants;
     const DEFAULT_CONFIG = {
-        packUrl: 'assets/goscript.pack',
+        packUrl: RUNTIME_CONSTANTS.toolchain.defaultPackUrl,
         debug: true,
         releasePackUrl: 'https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack'
     };
+    const { captureAsyncResult, captureSyncResult } = window.GoScriptResult;
 
     const LOCAL_PACK_CACHE_KEY = 'local-pack://goscript.pack';
     const PACK_SOURCE_STORAGE_KEY = 'goscript-preferred-pack-source';
@@ -97,11 +99,8 @@
                 return summarizeObject(value);
             }
 
-            try {
-                return JSON.stringify(value);
-            } catch (error) {
-                return String(value);
-            }
+            const [jsonValue, jsonError] = captureSyncResult(() => JSON.stringify(value), 'Failed to stringify log value');
+            return jsonError ? String(value) : jsonValue;
         }
 
         function cleanText(text) {
@@ -443,7 +442,7 @@
 
         function getCurrentSourceFiles() {
             return {
-                'main.go': editor.getValue()
+                [RUNTIME_CONSTANTS.vfs.entrySourceFileName]: editor.getValue()
             };
         }
 
@@ -534,37 +533,41 @@
             setStatus('idle', 'Initializing...');
             const loadingToast = toastApi.show('Loading GoScript toolchain (~168 MB)...', 'loading', 0);
 
-            try {
-                gs = new GoScript({
-                    packUrl,
-                    debug: config.debug,
-                    onProgress: (pct, msg) => {
-                        console.log(`[Init] ${pct}% - ${msg}`);
-                    },
-                    onOutput: (text) => {
-                        appendProgramOutput(text);
-                    },
-                    onError: (err) => {
-                        appendProgramOutput(`Error: ${err}\n`);
-                    }
-                });
+            gs = new GoScript({
+                packUrl,
+                debug: config.debug,
+                onProgress: (pct, msg) => {
+                    console.log(`[Init] ${pct}% - ${msg}`);
+                },
+                onOutput: (text) => {
+                    appendProgramOutput(text);
+                },
+                onError: (err) => {
+                    appendProgramOutput(`Error: ${err}\n`);
+                }
+            });
 
-                await gs.init();
-                window.gs = gs;
-                gsInitialized = true;
-                setStatus('ready', 'Ready');
-                btnRun.disabled = false;
-                console.log('GoScript Stats:', gs.getStats());
+            const [, initError] = await captureAsyncResult(
+                () => gs.init(),
+                'Failed to initialize the GoScript playground'
+            );
+            if (initError) {
+                setStatus('error', `Failed: ${initError.message}`);
+                console.error('Init failed:', initError);
                 await refreshPackCacheStatus();
-                toastApi.update(loadingToast, 'GoScript toolchain ready!', 'success');
-            } catch (error) {
-                setStatus('error', `Failed: ${error.message}`);
-                console.error('Init failed:', error);
-                await refreshPackCacheStatus();
-                toastApi.update(loadingToast, `Failed to load toolchain: ${error.message}`, 'error');
-            } finally {
+                toastApi.update(loadingToast, `Failed to load toolchain: ${initError.message}`, 'error');
                 initInFlight = false;
+                return;
             }
+
+            window.gs = gs;
+            gsInitialized = true;
+            setStatus('ready', 'Ready');
+            btnRun.disabled = false;
+            console.log('GoScript Stats:', gs.getStats());
+            await refreshPackCacheStatus();
+            toastApi.update(loadingToast, 'GoScript toolchain ready!', 'success');
+            initInFlight = false;
         }
 
         packFileEl.addEventListener('change', () => {
@@ -588,22 +591,37 @@
             setStatus('loading', 'Importing local pack...');
             const importToast = toastApi.show('Importing local goscript.pack into browser cache...', 'loading', 0);
 
-            try {
-                const loader = new ToolchainLoader();
-                const packData = await selectedPackFile.arrayBuffer();
-                await loader.importPack(LOCAL_PACK_CACHE_KEY, packData);
-                localStorage.setItem(PACK_SOURCE_STORAGE_KEY, LOCAL_PACK_CACHE_KEY);
-                packFileNameEl.textContent = `Cached local pack: ${selectedPackFile.name} (${formatMegabytes(packData.byteLength)})`;
-                await refreshPackCacheStatus();
-                toastApi.update(importToast, 'Local pack cached. Switching to browser-stored pack...', 'success');
-                await init(LOCAL_PACK_CACHE_KEY);
+            const loader = new ToolchainLoader();
+            const [packData, packReadError] = await captureAsyncResult(
+                () => selectedPackFile.arrayBuffer(),
+                'Failed to read the selected goscript.pack file'
+            );
+            if (packReadError) {
+                setStatus('error', `Local pack failed: ${packReadError.message}`);
+                appendProgramOutput(`${packReadError.message}\n`);
+                toastApi.update(importToast, `Local pack failed: ${packReadError.message}`, 'error');
                 btnLoadPack.disabled = false;
-            } catch (error) {
-                setStatus('error', `Local pack failed: ${error.message}`);
-                appendProgramOutput(`${error.message}\n`);
-                toastApi.update(importToast, `Local pack failed: ${error.message}`, 'error');
-                btnLoadPack.disabled = false;
+                return;
             }
+
+            const [, importError] = await captureAsyncResult(
+                () => loader.importPack(LOCAL_PACK_CACHE_KEY, packData),
+                'Failed to import the selected goscript.pack file'
+            );
+            if (importError) {
+                setStatus('error', `Local pack failed: ${importError.message}`);
+                appendProgramOutput(`${importError.message}\n`);
+                toastApi.update(importToast, `Local pack failed: ${importError.message}`, 'error');
+                btnLoadPack.disabled = false;
+                return;
+            }
+
+            localStorage.setItem(PACK_SOURCE_STORAGE_KEY, LOCAL_PACK_CACHE_KEY);
+            packFileNameEl.textContent = `Cached local pack: ${selectedPackFile.name} (${formatMegabytes(packData.byteLength)})`;
+            await refreshPackCacheStatus();
+            toastApi.update(importToast, 'Local pack cached. Switching to browser-stored pack...', 'success');
+            await init(LOCAL_PACK_CACHE_KEY);
+            btnLoadPack.disabled = false;
         });
 
         btnClearPackCache.addEventListener('click', async () => {
@@ -654,28 +672,32 @@
             progressBar.style.width = '50%';
             setStatus('loading', 'Compiling...');
 
-            try {
-                const result = await gs.compileAndRun(editor.getValue());
-
-                if (result.success) {
-                    progressBar.style.width = '100%';
-                    setStatus('ready', 'Complete');
-                    compileTimeEl.textContent = `${result.compileResult.metadata.compileTime}ms`;
-                    wasmSizeEl.textContent = `${(result.compileResult.metadata.wasmSize / 1024).toFixed(1)} KB`;
-                    lastWasmBinary = result.compileResult.wasm;
-                    btnDownload.disabled = false;
-                } else {
-                    progressBar.style.width = '100%';
-                    setStatus('error', 'Compilation failed');
-                    appendProgramOutput(`${result.error || 'Unknown error'}\n`);
-                }
-            } catch (error) {
+            const [compileRunResult, compileRunError] = await captureAsyncResult(
+                () => gs.compileAndRun(editor.getValue()),
+                'Failed to compile and run the selected example'
+            );
+            if (compileRunError) {
                 progressBar.style.width = '0%';
                 setStatus('error', 'Error');
-                appendProgramOutput(`${error.message}\n`);
-            } finally {
+                appendProgramOutput(`${compileRunError.message}\n`);
                 btnRun.disabled = false;
+                return;
             }
+
+            if (compileRunResult.success) {
+                progressBar.style.width = '100%';
+                setStatus('ready', 'Complete');
+                compileTimeEl.textContent = `${compileRunResult.compileResult.metadata.compileTime}ms`;
+                wasmSizeEl.textContent = `${(compileRunResult.compileResult.metadata.wasmSize / 1024).toFixed(1)} KB`;
+                lastWasmBinary = compileRunResult.compileResult.wasm;
+                btnDownload.disabled = false;
+            } else {
+                progressBar.style.width = '100%';
+                setStatus('error', 'Compilation failed');
+                appendProgramOutput(`${compileRunResult.error || 'Unknown error'}\n`);
+            }
+
+            btnRun.disabled = false;
         });
 
         btnClear.addEventListener('click', () => {
@@ -718,7 +740,12 @@
         await init();
     }
 
-    bootstrap().catch((error) => {
-        console.error('Playground bootstrap failed:', error);
+    captureAsyncResult(
+        () => bootstrap(),
+        'Failed to bootstrap the GoScript playground'
+    ).then(([, bootstrapError]) => {
+        if (bootstrapError) {
+            console.error('Playground bootstrap failed:', bootstrapError);
+        }
     });
 })();
