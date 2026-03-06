@@ -8,7 +8,7 @@
  * - GoScript SDK (MIT License)
  * - Go wasm_exec.js (BSD License)
  * 
- * Built: 2026-03-05 23:16:03
+ * Built: 2026-03-05 23:47:42
  */
 
 // ============================================================
@@ -597,6 +597,11 @@
 // ============================================================
 
 /**
+ * GoScript platform layer
+ * Virtual filesystem, fs polyfill, IndexedDB cache, and toolchain pack loader.
+ */
+
+/**
  * Personal Website 2025 - Virtual Filesystem
  * In-memory filesystem for Go compiler integration
  */
@@ -957,6 +962,8 @@ class VirtualFileSystem {
 window.VirtualFileSystem = VirtualFileSystem; 
 
 
+
+
 /**
  * Filesystem Polyfill for Go WASM
  * Bridges Node.js fs API to VirtualFileSystem
@@ -1269,6 +1276,8 @@ class FSPolyfill {
 window.FSPolyfill = FSPolyfill;
 
 
+
+
 /**
  * Personal Website 2025 - Cache Manager
  * Handles caching of source files and compiled WASM using IndexedDB
@@ -1572,6 +1581,72 @@ class CacheManager {
     }
 
     /**
+     * Clear only compiled WASM cache entries
+     * @returns {Promise<void>}
+     */
+    async clearCompiledWasm() {
+        if (!this.ready) await this.init();
+
+        console.log('ðŸ§¹ CacheManager: Clearing compiled WASM cache...');
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
+            const request = transaction.objectStore('compiledWasm').clear();
+
+            request.onsuccess = () => {
+                console.log('âœ… CacheManager: Compiled WASM cache cleared');
+                resolve();
+            };
+
+            request.onerror = () => {
+                console.error('âŒ CacheManager: Failed to clear compiled WASM cache');
+                reject(request.error || new Error('Failed to clear compiled WASM cache'));
+            };
+
+            transaction.onerror = () => reject(transaction.error || new Error('Failed to clear compiled WASM cache'));
+        });
+    }
+
+    /**
+     * Clear one compiled WASM cache entry by source hash
+     * @param {string} sourceHash
+     * @returns {Promise<boolean>}
+     */
+    async clearCompiledWasmEntry(sourceHash) {
+        if (!this.ready) await this.init();
+
+        const cacheKey = `wasm_${sourceHash}`;
+        console.log(`ðŸ§¹ CacheManager: Clearing compiled WASM cache entry ${cacheKey}...`);
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
+            const store = transaction.objectStore('compiledWasm');
+            const getRequest = store.get(cacheKey);
+
+            getRequest.onerror = () => reject(getRequest.error || new Error('Failed to inspect compiled WASM cache entry'));
+            getRequest.onsuccess = () => {
+                if (!getRequest.result) {
+                    console.log(`ðŸ” CacheManager: No compiled WASM cache entry for ${cacheKey}`);
+                    resolve(false);
+                    return;
+                }
+
+                const deleteRequest = store.delete(cacheKey);
+                deleteRequest.onerror = () => {
+                    console.error(`âŒ CacheManager: Failed to clear compiled WASM cache entry ${cacheKey}`);
+                    reject(deleteRequest.error || new Error('Failed to clear compiled WASM cache entry'));
+                };
+                deleteRequest.onsuccess = () => {
+                    console.log(`âœ… CacheManager: Cleared compiled WASM cache entry ${cacheKey}`);
+                    resolve(true);
+                };
+            };
+
+            transaction.onerror = () => reject(transaction.error || new Error('Failed to clear compiled WASM cache entry'));
+        });
+    }
+
+    /**
      * Clear all cache data
      * @returns {Promise<void>}
      */
@@ -1604,6 +1679,8 @@ class CacheManager {
 
 // Export for use in other modules
 window.CacheManager = CacheManager; 
+
+
 
 
 /**
@@ -2148,6 +2225,12 @@ class ToolchainLoader {
 // Export for use in other modules
 window.ToolchainLoader = ToolchainLoader;
 
+
+
+/**
+ * GoScript execution layer
+ * Compilation pipeline and WASM runtime execution.
+ */
 
 /**
  * Personal Website 2025 - Compilation Manager
@@ -2760,6 +2843,8 @@ class CompilationManager {
 
 // Export for use in other modules
 window.CompilationManager = CompilationManager; 
+
+
 
 
 /**
@@ -3444,6 +3529,7 @@ class AppRunner {
 
 // Export for use in other modules
 window.AppRunner = AppRunner;
+
 
 
 /**

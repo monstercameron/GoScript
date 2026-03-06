@@ -983,6 +983,72 @@ class CacheManager {
     }
 
     /**
+     * Clear only compiled WASM cache entries
+     * @returns {Promise<void>}
+     */
+    async clearCompiledWasm() {
+        if (!this.ready) await this.init();
+
+        console.log('🧹 CacheManager: Clearing compiled WASM cache...');
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
+            const request = transaction.objectStore('compiledWasm').clear();
+
+            request.onsuccess = () => {
+                console.log('✅ CacheManager: Compiled WASM cache cleared');
+                resolve();
+            };
+
+            request.onerror = () => {
+                console.error('❌ CacheManager: Failed to clear compiled WASM cache');
+                reject(request.error || new Error('Failed to clear compiled WASM cache'));
+            };
+
+            transaction.onerror = () => reject(transaction.error || new Error('Failed to clear compiled WASM cache'));
+        });
+    }
+
+    /**
+     * Clear one compiled WASM cache entry by source hash
+     * @param {string} sourceHash
+     * @returns {Promise<boolean>}
+     */
+    async clearCompiledWasmEntry(sourceHash) {
+        if (!this.ready) await this.init();
+
+        const cacheKey = `wasm_${sourceHash}`;
+        console.log(`🧹 CacheManager: Clearing compiled WASM cache entry ${cacheKey}...`);
+
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
+            const store = transaction.objectStore('compiledWasm');
+            const getRequest = store.get(cacheKey);
+
+            getRequest.onerror = () => reject(getRequest.error || new Error('Failed to inspect compiled WASM cache entry'));
+            getRequest.onsuccess = () => {
+                if (!getRequest.result) {
+                    console.log(`🔍 CacheManager: No compiled WASM cache entry for ${cacheKey}`);
+                    resolve(false);
+                    return;
+                }
+
+                const deleteRequest = store.delete(cacheKey);
+                deleteRequest.onerror = () => {
+                    console.error(`❌ CacheManager: Failed to clear compiled WASM cache entry ${cacheKey}`);
+                    reject(deleteRequest.error || new Error('Failed to clear compiled WASM cache entry'));
+                };
+                deleteRequest.onsuccess = () => {
+                    console.log(`✅ CacheManager: Cleared compiled WASM cache entry ${cacheKey}`);
+                    resolve(true);
+                };
+            };
+
+            transaction.onerror = () => reject(transaction.error || new Error('Failed to clear compiled WASM cache entry'));
+        });
+    }
+
+    /**
      * Clear all cache data
      * @returns {Promise<void>}
      */

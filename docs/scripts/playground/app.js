@@ -7,6 +7,96 @@
 
     const LOCAL_PACK_CACHE_KEY = 'local-pack://goscript.pack';
     const PACK_SOURCE_STORAGE_KEY = 'goscript-preferred-pack-source';
+    const PACK_PANEL_COLLAPSED_STORAGE_KEY = 'goscript-pack-panel-collapsed';
+
+    function createTerminalLogger(container) {
+        const originalConsole = {
+            log: console.log.bind(console),
+            info: typeof console.info === 'function' ? console.info.bind(console) : console.log.bind(console),
+            warn: console.warn.bind(console),
+            error: console.error.bind(console),
+            debug: typeof console.debug === 'function' ? console.debug.bind(console) : console.log.bind(console)
+        };
+
+        const colors = {
+            log: 'text-slate-300',
+            info: 'text-cyan-300',
+            warn: 'text-amber-300',
+            error: 'text-rose-300',
+            debug: 'text-violet-300'
+        };
+
+        function stringifyPart(value) {
+            if (value instanceof Error) {
+                return value.stack || value.message;
+            }
+
+            if (typeof value === 'string') {
+                return value;
+            }
+
+            try {
+                return JSON.stringify(value);
+            } catch (error) {
+                return String(value);
+            }
+        }
+
+        function append(level, args) {
+            if (!container) {
+                return;
+            }
+
+            const line = document.createElement('div');
+            line.className = `font-mono text-xs leading-5 ${colors[level] || colors.log}`;
+            line.style.whiteSpace = 'pre-wrap';
+            line.style.overflowWrap = 'anywhere';
+            line.style.wordBreak = 'break-word';
+
+            const timestamp = new Date().toLocaleTimeString('en-US', {
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+
+            const renderedArgs = args.map(stringifyPart).join(' ');
+            line.textContent = `[${timestamp}] ${level.toUpperCase()} ${renderedArgs}`;
+            container.appendChild(line);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function mirror(level) {
+            return (...args) => {
+                originalConsole[level](...args);
+                append(level, args);
+            };
+        }
+
+        return {
+            install() {
+                console.log = mirror('log');
+                console.info = mirror('info');
+                console.warn = mirror('warn');
+                console.error = mirror('error');
+                console.debug = mirror('debug');
+            },
+            clear() {
+                if (container) {
+                    container.textContent = '';
+                }
+            },
+            log(...args) {
+                console.log(...args);
+            },
+            warn(...args) {
+                console.warn(...args);
+            },
+            error(...args) {
+                console.error(...args);
+            }
+        };
+    }
 
     function createToastApi(container) {
         if (!container) {
@@ -94,6 +184,10 @@
         const packFileEl = document.getElementById('pack-file');
         const btnLoadPack = document.getElementById('btn-load-pack');
         const btnClearPackCache = document.getElementById('btn-clear-pack-cache');
+        const btnClearWasmCache = document.getElementById('btn-clear-wasm-cache');
+        const btnTogglePackPanel = document.getElementById('btn-toggle-pack-panel');
+        const packPanelBody = document.getElementById('pack-panel-body');
+        const packPanelSummary = document.getElementById('pack-panel-summary');
         const packFileNameEl = document.getElementById('pack-file-name');
         const packSourceEl = document.getElementById('pack-source');
         const packCacheStatusEl = document.getElementById('pack-cache-status');
@@ -103,11 +197,16 @@
         const progressBar = document.getElementById('progress-bar');
         const compileTimeEl = document.getElementById('compile-time');
         const wasmSizeEl = document.getElementById('wasm-size');
+        const terminalEl = document.getElementById('terminal-log');
+        const btnClearTerminal = document.getElementById('btn-clear-terminal');
         const toastApi = createToastApi(document.getElementById('toast-container'));
+        const terminalLogger = createTerminalLogger(terminalEl);
 
-        if (!sourceEl || !outputEl || !btnRun || !btnClear || !btnDownload || !packFileEl || !btnLoadPack || !btnClearPackCache || !packFileNameEl || !packSourceEl || !packCacheStatusEl || !examplesEl || !statusDot || !statusText || !progressBar || !compileTimeEl || !wasmSizeEl) {
+        if (!sourceEl || !outputEl || !btnRun || !btnClear || !btnDownload || !packFileEl || !btnLoadPack || !btnClearPackCache || !btnClearWasmCache || !btnTogglePackPanel || !packPanelBody || !packPanelSummary || !packFileNameEl || !packSourceEl || !packCacheStatusEl || !examplesEl || !statusDot || !statusText || !progressBar || !compileTimeEl || !wasmSizeEl || !terminalEl || !btnClearTerminal) {
             throw new Error('GoScript playground DOM is incomplete.');
         }
+
+        terminalLogger.install();
 
         if (packDownloadLink) {
             packDownloadLink.href = config.releasePackUrl;
@@ -127,15 +226,36 @@
                 'Cmd-Enter': () => btnRun.click()
             }
         });
+        editor.on('change', () => {
+            if (currentExampleKey && examples[currentExampleKey] !== editor.getValue()) {
+                currentExampleKey = null;
+            }
+        });
 
         let gs = null;
         let gsInitialized = false;
         let initInFlight = false;
         let selectedPackFile = null;
         let lastWasmBinary = null;
+        let currentExampleKey = null;
+
+        function appendProgramOutput(text) {
+            outputEl.textContent += text;
+            outputEl.scrollTop = outputEl.scrollHeight;
+        }
 
         function formatMegabytes(byteLength) {
             return `${(byteLength / 1024 / 1024).toFixed(1)} MB`;
+        }
+
+        function getCurrentSourceFiles() {
+            return {
+                'main.go': editor.getValue()
+            };
+        }
+
+        function getCurrentProgramLabel() {
+            return currentExampleKey ? `example "${currentExampleKey}"` : 'current editor program';
         }
 
         function setStatus(state, text) {
@@ -153,6 +273,15 @@
             } else {
                 packSourceEl.textContent = 'Pack source: same-origin asset';
             }
+        }
+
+        function setPackPanelCollapsed(collapsed) {
+            packPanelBody.style.display = collapsed ? 'none' : 'block';
+            btnTogglePackPanel.textContent = collapsed ? 'Expand' : 'Collapse';
+            packPanelSummary.textContent = collapsed
+                ? `${packSourceEl.textContent} • ${packCacheStatusEl.textContent}`
+                : 'Manage pack download, local import, and the toolchain cache.';
+            localStorage.setItem(PACK_PANEL_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0');
         }
 
         async function refreshPackCacheStatus() {
@@ -175,6 +304,10 @@
                 if (!selectedPackFile) {
                     packFileNameEl.textContent = 'No local pack selected';
                 }
+            }
+
+            if (packPanelBody.style.display === 'none') {
+                packPanelSummary.textContent = `${packSourceEl.textContent} • ${packCacheStatusEl.textContent}`;
             }
         }
 
@@ -216,11 +349,10 @@
                         console.log(`[Init] ${pct}% - ${msg}`);
                     },
                     onOutput: (text) => {
-                        outputEl.textContent += text;
-                        outputEl.scrollTop = outputEl.scrollHeight;
+                        appendProgramOutput(text);
                     },
                     onError: (err) => {
-                        outputEl.textContent += `Error: ${err}\n`;
+                        appendProgramOutput(`Error: ${err}\n`);
                     }
                 });
 
@@ -250,6 +382,10 @@
             btnLoadPack.disabled = !selectedPackFile;
         });
 
+        btnTogglePackPanel.addEventListener('click', () => {
+            setPackPanelCollapsed(packPanelBody.style.display !== 'none');
+        });
+
         btnLoadPack.addEventListener('click', async () => {
             if (!selectedPackFile) {
                 return;
@@ -271,7 +407,7 @@
                 btnLoadPack.disabled = false;
             } catch (error) {
                 setStatus('error', `Local pack failed: ${error.message}`);
-                outputEl.textContent = error.message;
+                appendProgramOutput(`${error.message}\n`);
                 toastApi.update(importToast, `Local pack failed: ${error.message}`, 'error');
                 btnLoadPack.disabled = false;
             }
@@ -289,10 +425,28 @@
             await refreshPackCacheStatus();
             if (gsInitialized) {
                 setStatus('ready', 'Ready');
-                outputEl.textContent += '\nToolchain cache cleared. Reload to force a fresh pack load.\n';
-                outputEl.scrollTop = outputEl.scrollHeight;
+                appendProgramOutput('\nToolchain cache cleared. Reload to force a fresh pack load.\n');
             }
             toastApi.show('Toolchain cache cleared.', 'success');
+        });
+
+        btnClearWasmCache.addEventListener('click', async () => {
+            const cacheManager = new CacheManager();
+            const sourceHash = cacheManager.generateSourceHash(getCurrentSourceFiles());
+            const cleared = await cacheManager.clearCompiledWasmEntry(sourceHash);
+
+            lastWasmBinary = null;
+            btnDownload.disabled = true;
+
+            if (cleared) {
+                appendProgramOutput(`\nCompiled WASM cache cleared for ${getCurrentProgramLabel()}.\n`);
+                toastApi.show('Current program WASM cache cleared.', 'success');
+                console.log(`Compiled WASM cache cleared for ${getCurrentProgramLabel()}`);
+            } else {
+                appendProgramOutput(`\nNo cached WASM found for ${getCurrentProgramLabel()}.\n`);
+                toastApi.show('No cached WASM found for current program.', 'info');
+                console.log(`No compiled WASM cache entry found for ${getCurrentProgramLabel()}`);
+            }
         });
 
         btnRun.addEventListener('click', async () => {
@@ -320,12 +474,12 @@
                 } else {
                     progressBar.style.width = '100%';
                     setStatus('error', 'Compilation failed');
-                    outputEl.textContent = result.error || 'Unknown error';
+                    appendProgramOutput(`${result.error || 'Unknown error'}\n`);
                 }
             } catch (error) {
                 progressBar.style.width = '0%';
                 setStatus('error', 'Error');
-                outputEl.textContent = error.message;
+                appendProgramOutput(`${error.message}\n`);
             } finally {
                 btnRun.disabled = false;
             }
@@ -335,6 +489,10 @@
             outputEl.textContent = '';
             compileTimeEl.textContent = '';
             wasmSizeEl.textContent = '';
+        });
+
+        btnClearTerminal.addEventListener('click', () => {
+            terminalLogger.clear();
         });
 
         btnDownload.addEventListener('click', () => {
@@ -357,10 +515,12 @@
             const example = examplesEl.value;
             if (example && examples[example]) {
                 editor.setValue(examples[example]);
+                currentExampleKey = example;
             }
-            examplesEl.value = '';
         });
 
+        const packPanelCollapsed = localStorage.getItem(PACK_PANEL_COLLAPSED_STORAGE_KEY);
+        setPackPanelCollapsed(packPanelCollapsed === null ? true : packPanelCollapsed === '1');
         await refreshPackCacheStatus();
         await init();
     }
