@@ -133,9 +133,9 @@ class CompilationManager {
         
         try {
             // Try to use packed toolchain first (single file with everything)
-            if (window.ToolchainLoader) {
+            if (GoScriptGlobal.ToolchainLoader) {
                 console.log('📦 Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
-                this.toolchainLoader = new window.ToolchainLoader();
+                this.toolchainLoader = new GoScriptGlobal.ToolchainLoader();
                 await this.toolchainLoader.load(this.toolchainUrl);
                 
                 // Extract compiler and linker
@@ -208,9 +208,9 @@ class CompilationManager {
         
         try {
             // Try to use packed stdlib first
-            if (window.StdLibLoader) {
+            if (GoScriptGlobal.StdLibLoader) {
                 console.log('📦 Using packed stdlib.pack (340 packages in 1 file)');
-                this.stdlibLoader = new window.StdLibLoader();
+                this.stdlibLoader = new GoScriptGlobal.StdLibLoader();
                 await this.stdlibLoader.load('static/pkg/stdlib.pack');
                 this.stdlibLoader.loadAllIntoVFS(this.vfs);
                 
@@ -442,8 +442,8 @@ class CompilationManager {
     setupCompilerFilesystem() {
         console.log('🗂️ CompilationManager: Setting up compiler filesystem interface...');
         
-        if (window.FSPolyfill) {
-            const polyfill = new window.FSPolyfill(this.vfs);
+        if (GoScriptGlobal.FSPolyfill) {
+            const polyfill = new GoScriptGlobal.FSPolyfill(this.vfs);
             polyfill.patch();
             console.log('✅ CompilationManager: Filesystem interface patched');
         } else {
@@ -484,8 +484,8 @@ class CompilationManager {
         
         // Capture compiler output
         let compilerOutput = [];
-        const originalAddConsoleOutput = window.addConsoleOutput;
-        window.addConsoleOutput = (text) => {
+        const originalAddConsoleOutput = GoScriptGlobal.addConsoleOutput;
+        GoScriptGlobal.addConsoleOutput = (text) => {
             compilerOutput.push(text);
             console.log('[COMPILER]', text);
             if (originalAddConsoleOutput) originalAddConsoleOutput(text);
@@ -522,7 +522,7 @@ class CompilationManager {
                 throw new Error(`Compilation failed: ${errorMsg}`);
             }
         } finally {
-            window.addConsoleOutput = originalAddConsoleOutput;
+            GoScriptGlobal.addConsoleOutput = originalAddConsoleOutput;
         }
         
         // Check if main.o exists
@@ -613,7 +613,7 @@ class CompilationManager {
 }
 
 // Export for use in other modules
-window.CompilationManager = CompilationManager; 
+GoScriptGlobal.CompilationManager = CompilationManager; 
 
 
 
@@ -649,8 +649,8 @@ class AppRunner {
      * @private
      */
     setupFsPolyfill() {
-        if (!window.fs) window.fs = {};
-        const baseFs = window.fs;
+        if (!GoScriptGlobal.fs) GoScriptGlobal.fs = {};
+        const baseFs = GoScriptGlobal.fs;
         const originalWriteSync = typeof baseFs.writeSync === 'function' ? baseFs.writeSync.bind(baseFs) : null;
         const originalWrite = typeof baseFs.write === 'function' ? baseFs.write.bind(baseFs) : null;
         const originalOpen = typeof baseFs.open === 'function' ? baseFs.open.bind(baseFs) : null;
@@ -663,7 +663,7 @@ class AppRunner {
             }
         };
 
-        window.fs.writeSync = (fd, buf) => {
+        GoScriptGlobal.fs.writeSync = (fd, buf) => {
             if (fd === 1 || fd === 2) {
                 writeToOutput(buf);
                 return buf.length;
@@ -676,7 +676,7 @@ class AppRunner {
             return buf.length;
         };
         
-        window.fs.write = (fd, buf, offset, length, position, callback) => {
+        GoScriptGlobal.fs.write = (fd, buf, offset, length, position, callback) => {
             if (fd === 1 || fd === 2) {
                 writeToOutput(buf.subarray(offset, offset + length));
                 callback(null, length);
@@ -691,7 +691,7 @@ class AppRunner {
             callback(null, length);
         };
         
-        window.fs.open = (path, flags, mode, callback) => {
+        GoScriptGlobal.fs.open = (path, flags, mode, callback) => {
             if (originalOpen) {
                 originalOpen(path, flags, mode, callback);
                 return;
@@ -963,8 +963,8 @@ class AppRunner {
         this.injectApplicationCSS();
         
         // Setup global objects that Go WASM might expect
-        if (!window.fs) {
-            window.fs = {
+        if (!GoScriptGlobal.fs) {
+            GoScriptGlobal.fs = {
                 writeSync: () => {},
                 write: () => {}
             };
@@ -1053,7 +1053,7 @@ class AppRunner {
                     
                     <div class="demo-section">
                         <h3>🎯 Interactive Demo</h3>
-                        <button onclick="window.appRunner.handleDemoClick()" class="demo-button">
+                        <button onclick="globalThis.appRunner.handleDemoClick()" class="demo-button">
                             Click me! (Handled by Go WASM)
                         </button>
                         <div id="demo-output" class="demo-output"></div>
@@ -1080,7 +1080,7 @@ class AppRunner {
         `;
         
         // Make the app runner globally accessible for demo interactions
-        window.appRunner = this;
+        GoScriptGlobal.appRunner = this;
     }
 
     /**
@@ -1251,7 +1251,7 @@ class AppRunner {
                     <div style="text-align: center; padding: 2rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 1rem;">
                         <h2 style="color: #ef4444; margin-bottom: 1rem;">❌ Application Error</h2>
                         <p style="color: #cbd5e1; margin-bottom: 1rem;">${message}</p>
-                        <button onclick="window.location.reload()" style="background: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; cursor: pointer;">
+                        <button onclick="globalThis.location.reload()" style="background: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; cursor: pointer;">
                             🔄 Reload Page
                         </button>
                     </div>
@@ -1299,5 +1299,5 @@ class AppRunner {
 }
 
 // Export for use in other modules
-window.AppRunner = AppRunner;
+GoScriptGlobal.AppRunner = AppRunner;
 

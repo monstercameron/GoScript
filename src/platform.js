@@ -3,6 +3,10 @@
  * Virtual filesystem, fs polyfill, IndexedDB cache, and toolchain pack loader.
  */
 
+var GoScriptGlobal = typeof globalThis !== 'undefined'
+    ? globalThis
+    : (typeof window !== 'undefined' ? window : {});
+
 /**
  * Personal Website 2025 - Virtual Filesystem
  * In-memory filesystem for Go compiler integration
@@ -361,7 +365,7 @@ class VirtualFileSystem {
 }
 
 // Export for use in other modules
-window.VirtualFileSystem = VirtualFileSystem; 
+GoScriptGlobal.VirtualFileSystem = VirtualFileSystem; 
 
 
 
@@ -392,8 +396,8 @@ class FSPolyfill {
             writeSync(fd, buf) {
                 if (fd === 1 || fd === 2) {
                     const text = new TextDecoder().decode(buf);
-                    if (window.addConsoleOutput) {
-                        window.addConsoleOutput(text.trimEnd());
+                    if (GoScriptGlobal.addConsoleOutput) {
+                        GoScriptGlobal.addConsoleOutput(text.trimEnd());
                     } else {
                         console.log(text);
                     }
@@ -419,8 +423,8 @@ class FSPolyfill {
                 try {
                     if (fd === 1 || fd === 2) {
                         const text = new TextDecoder().decode(buf.subarray(offset, offset + length));
-                        if (window.addConsoleOutput) {
-                            window.addConsoleOutput(text.trimEnd());
+                        if (GoScriptGlobal.addConsoleOutput) {
+                            GoScriptGlobal.addConsoleOutput(text.trimEnd());
                         } else {
                             console.log(text);
                         }
@@ -675,7 +679,7 @@ class FSPolyfill {
     }
 }
 
-window.FSPolyfill = FSPolyfill;
+GoScriptGlobal.FSPolyfill = FSPolyfill;
 
 
 
@@ -1080,7 +1084,7 @@ class CacheManager {
 }
 
 // Export for use in other modules
-window.CacheManager = CacheManager; 
+GoScriptGlobal.CacheManager = CacheManager; 
 
 
 
@@ -1625,5 +1629,5 @@ class ToolchainLoader {
 }
 
 // Export for use in other modules
-window.ToolchainLoader = ToolchainLoader;
+GoScriptGlobal.ToolchainLoader = ToolchainLoader;
 

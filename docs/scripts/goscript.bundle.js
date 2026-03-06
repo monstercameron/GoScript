@@ -1,14 +1,12 @@
-﻿/**
+/**
  * GoScript SDK v1.0.0
  * Browser-based Go compiler using WebAssembly
- * 
- * https://github.com/aspect-build/aspect-cli
- * 
+ *
  * Includes:
  * - GoScript SDK (MIT License)
  * - Go wasm_exec.js (BSD License)
- * 
- * Built: 2026-03-05 23:47:42
+ *
+ * Built: 2026-03-06 04:58:30
  */
 
 // ============================================================
@@ -601,6 +599,10 @@
  * Virtual filesystem, fs polyfill, IndexedDB cache, and toolchain pack loader.
  */
 
+var GoScriptGlobal = typeof globalThis !== 'undefined'
+    ? globalThis
+    : (typeof window !== 'undefined' ? window : {});
+
 /**
  * Personal Website 2025 - Virtual Filesystem
  * In-memory filesystem for Go compiler integration
@@ -623,7 +625,7 @@ class VirtualFileSystem {
         const normalizedContent = content instanceof ArrayBuffer ? new Uint8Array(content) : content;
         this.files.set(normalizedPath, normalizedContent);
         this.ensureDirectoryExists(this.getDirectory(normalizedPath));
-        console.log(`ðŸ“ VFS: Written ${normalizedPath} (${this.getContentSize(normalizedContent)} bytes)`);
+        console.log(`📝 VFS: Written ${normalizedPath} (${this.getContentSize(normalizedContent)} bytes)`);
     }
 
     /**
@@ -701,7 +703,7 @@ class VirtualFileSystem {
     mkdir(path) {
         const normalizedPath = this.normalizePath(path);
         this.directories.add(normalizedPath);
-        console.log(`ðŸ“ VFS: Created directory ${normalizedPath}`);
+        console.log(`📁 VFS: Created directory ${normalizedPath}`);
     }
 
     /**
@@ -800,7 +802,7 @@ class VirtualFileSystem {
      * @param {Object} sourceFiles - Files from GitHub fetcher
      */
     loadGoSources(sourceFiles) {
-        console.log('ðŸ“¦ VFS: Loading Go source files...');
+        console.log('📦 VFS: Loading Go source files...');
         
         for (const [filePath, content] of Object.entries(sourceFiles)) {
             this.writeFile(filePath, content);
@@ -811,7 +813,7 @@ class VirtualFileSystem {
         this.mkdir('/pkg');
         this.mkdir('/bin');
         
-        console.log(`âœ… VFS: Loaded ${Object.keys(sourceFiles).length} source files`);
+        console.log(`✅ VFS: Loaded ${Object.keys(sourceFiles).length} source files`);
     }
 
     /**
@@ -895,7 +897,7 @@ class VirtualFileSystem {
             const depth = (path.match(/\//g) || []).length - 1;
             const indent = '  '.repeat(depth);
             const fileName = path.split('/').pop();
-            tree += `${indent}â”œâ”€â”€ ${fileName}\n`;
+            tree += `${indent}├── ${fileName}\n`;
         }
         
         return tree;
@@ -933,7 +935,7 @@ class VirtualFileSystem {
     clear() {
         this.files.clear();
         this.directories.clear();
-        console.log('ðŸ—‘ï¸ VFS: Cleared all files');
+        console.log('🗑️ VFS: Cleared all files');
     }
 
     /**
@@ -959,7 +961,7 @@ class VirtualFileSystem {
 }
 
 // Export for use in other modules
-window.VirtualFileSystem = VirtualFileSystem; 
+GoScriptGlobal.VirtualFileSystem = VirtualFileSystem; 
 
 
 
@@ -990,8 +992,8 @@ class FSPolyfill {
             writeSync(fd, buf) {
                 if (fd === 1 || fd === 2) {
                     const text = new TextDecoder().decode(buf);
-                    if (window.addConsoleOutput) {
-                        window.addConsoleOutput(text.trimEnd());
+                    if (GoScriptGlobal.addConsoleOutput) {
+                        GoScriptGlobal.addConsoleOutput(text.trimEnd());
                     } else {
                         console.log(text);
                     }
@@ -1017,8 +1019,8 @@ class FSPolyfill {
                 try {
                     if (fd === 1 || fd === 2) {
                         const text = new TextDecoder().decode(buf.subarray(offset, offset + length));
-                        if (window.addConsoleOutput) {
-                            window.addConsoleOutput(text.trimEnd());
+                        if (GoScriptGlobal.addConsoleOutput) {
+                            GoScriptGlobal.addConsoleOutput(text.trimEnd());
                         } else {
                             console.log(text);
                         }
@@ -1273,7 +1275,7 @@ class FSPolyfill {
     }
 }
 
-window.FSPolyfill = FSPolyfill;
+GoScriptGlobal.FSPolyfill = FSPolyfill;
 
 
 
@@ -1297,19 +1299,19 @@ class CacheManager {
      */
     async init() {
         return new Promise((resolve, reject) => {
-            console.log('ðŸ—„ï¸ CacheManager: Initializing IndexedDB cache...');
+            console.log('🗄️ CacheManager: Initializing IndexedDB cache...');
             
             const request = indexedDB.open(this.dbName, this.dbVersion);
             
             request.onerror = () => {
-                console.error('âŒ CacheManager: Failed to open IndexedDB');
+                console.error('❌ CacheManager: Failed to open IndexedDB');
                 reject(new Error('Failed to initialize cache database'));
             };
             
             request.onsuccess = (event) => {
                 this.db = event.target.result;
                 this.ready = true;
-                console.log('âœ… CacheManager: Cache database ready');
+                console.log('✅ CacheManager: Cache database ready');
                 resolve();
             };
             
@@ -1331,7 +1333,7 @@ class CacheManager {
                     db.createObjectStore('metadata', { keyPath: 'key' });
                 }
                 
-                console.log('ðŸ“Š CacheManager: Created object stores');
+                console.log('📊 CacheManager: Created object stores');
             };
         });
     }
@@ -1345,7 +1347,7 @@ class CacheManager {
     async cacheSourceFiles(commitHash, sourceFiles) {
         if (!this.ready) await this.init();
         
-        console.log(`ðŸ’¾ CacheManager: Caching source files for commit ${commitHash}`);
+        console.log(`💾 CacheManager: Caching source files for commit ${commitHash}`);
         
         const transaction = this.db.transaction(['sourceFiles'], 'readwrite');
         const store = transaction.objectStore('sourceFiles');
@@ -1362,12 +1364,12 @@ class CacheManager {
             const request = store.put(cacheEntry);
             
             request.onsuccess = () => {
-                console.log(`âœ… CacheManager: Cached ${Object.keys(sourceFiles).length} source files`);
+                console.log(`✅ CacheManager: Cached ${Object.keys(sourceFiles).length} source files`);
                 resolve();
             };
             
             request.onerror = () => {
-                console.error('âŒ CacheManager: Failed to cache source files');
+                console.error('❌ CacheManager: Failed to cache source files');
                 reject(new Error('Failed to cache source files'));
             };
         });
@@ -1390,16 +1392,16 @@ class CacheManager {
             request.onsuccess = (event) => {
                 const result = event.target.result;
                 if (result) {
-                    console.log(`ðŸŽ¯ CacheManager: Found cached sources for commit ${commitHash}`);
+                    console.log(`🎯 CacheManager: Found cached sources for commit ${commitHash}`);
                     resolve(result.files);
                 } else {
-                    console.log(`ðŸ” CacheManager: No cached sources for commit ${commitHash}`);
+                    console.log(`🔍 CacheManager: No cached sources for commit ${commitHash}`);
                     resolve(null);
                 }
             };
             
             request.onerror = () => {
-                console.error('âŒ CacheManager: Failed to retrieve cached sources');
+                console.error('❌ CacheManager: Failed to retrieve cached sources');
                 reject(new Error('Failed to retrieve cached sources'));
             };
         });
@@ -1415,7 +1417,7 @@ class CacheManager {
     async cacheCompiledWasm(sourceHash, wasmBinary, metadata = {}) {
         if (!this.ready) await this.init();
         
-        console.log(`ðŸ’¾ CacheManager: Caching WASM binary (${wasmBinary.byteLength} bytes)`);
+        console.log(`💾 CacheManager: Caching WASM binary (${wasmBinary.byteLength} bytes)`);
         
         const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
         const store = transaction.objectStore('compiledWasm');
@@ -1433,12 +1435,12 @@ class CacheManager {
             const request = store.put(cacheEntry);
             
             request.onsuccess = () => {
-                console.log(`âœ… CacheManager: Cached WASM binary`);
+                console.log(`✅ CacheManager: Cached WASM binary`);
                 resolve();
             };
             
             request.onerror = () => {
-                console.error('âŒ CacheManager: Failed to cache WASM binary');
+                console.error('❌ CacheManager: Failed to cache WASM binary');
                 reject(new Error('Failed to cache WASM binary'));
             };
         });
@@ -1461,20 +1463,20 @@ class CacheManager {
             request.onsuccess = (event) => {
                 const result = event.target.result;
                 if (result) {
-                    console.log(`ðŸŽ¯ CacheManager: Found cached WASM for hash ${sourceHash}`);
+                    console.log(`🎯 CacheManager: Found cached WASM for hash ${sourceHash}`);
                     resolve({
                         wasmBinary: result.wasmBinary,
                         metadata: result.metadata,
                         timestamp: result.timestamp
                     });
                 } else {
-                    console.log(`ðŸ” CacheManager: No cached WASM for hash ${sourceHash}`);
+                    console.log(`🔍 CacheManager: No cached WASM for hash ${sourceHash}`);
                     resolve(null);
                 }
             };
             
             request.onerror = () => {
-                console.error('âŒ CacheManager: Failed to retrieve cached WASM');
+                console.error('❌ CacheManager: Failed to retrieve cached WASM');
                 reject(new Error('Failed to retrieve cached WASM'));
             };
         });
@@ -1512,7 +1514,7 @@ class CacheManager {
     async clearOldEntries(maxAge = 7 * 24 * 60 * 60 * 1000) { // 7 days default
         if (!this.ready) await this.init();
         
-        console.log('ðŸ§¹ CacheManager: Clearing old cache entries...');
+        console.log('🧹 CacheManager: Clearing old cache entries...');
         
         const cutoffTime = Date.now() - maxAge;
         const stores = ['sourceFiles', 'compiledWasm'];
@@ -1537,7 +1539,7 @@ class CacheManager {
             transaction.onerror = () => reject(transaction.error || new Error(`Failed to clear ${storeName}`));
         })));
         
-        console.log('âœ… CacheManager: Old entries cleared');
+        console.log('✅ CacheManager: Old entries cleared');
     }
 
     /**
@@ -1587,19 +1589,19 @@ class CacheManager {
     async clearCompiledWasm() {
         if (!this.ready) await this.init();
 
-        console.log('ðŸ§¹ CacheManager: Clearing compiled WASM cache...');
+        console.log('🧹 CacheManager: Clearing compiled WASM cache...');
 
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
             const request = transaction.objectStore('compiledWasm').clear();
 
             request.onsuccess = () => {
-                console.log('âœ… CacheManager: Compiled WASM cache cleared');
+                console.log('✅ CacheManager: Compiled WASM cache cleared');
                 resolve();
             };
 
             request.onerror = () => {
-                console.error('âŒ CacheManager: Failed to clear compiled WASM cache');
+                console.error('❌ CacheManager: Failed to clear compiled WASM cache');
                 reject(request.error || new Error('Failed to clear compiled WASM cache'));
             };
 
@@ -1616,7 +1618,7 @@ class CacheManager {
         if (!this.ready) await this.init();
 
         const cacheKey = `wasm_${sourceHash}`;
-        console.log(`ðŸ§¹ CacheManager: Clearing compiled WASM cache entry ${cacheKey}...`);
+        console.log(`🧹 CacheManager: Clearing compiled WASM cache entry ${cacheKey}...`);
 
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction(['compiledWasm'], 'readwrite');
@@ -1626,18 +1628,18 @@ class CacheManager {
             getRequest.onerror = () => reject(getRequest.error || new Error('Failed to inspect compiled WASM cache entry'));
             getRequest.onsuccess = () => {
                 if (!getRequest.result) {
-                    console.log(`ðŸ” CacheManager: No compiled WASM cache entry for ${cacheKey}`);
+                    console.log(`🔍 CacheManager: No compiled WASM cache entry for ${cacheKey}`);
                     resolve(false);
                     return;
                 }
 
                 const deleteRequest = store.delete(cacheKey);
                 deleteRequest.onerror = () => {
-                    console.error(`âŒ CacheManager: Failed to clear compiled WASM cache entry ${cacheKey}`);
+                    console.error(`❌ CacheManager: Failed to clear compiled WASM cache entry ${cacheKey}`);
                     reject(deleteRequest.error || new Error('Failed to clear compiled WASM cache entry'));
                 };
                 deleteRequest.onsuccess = () => {
-                    console.log(`âœ… CacheManager: Cleared compiled WASM cache entry ${cacheKey}`);
+                    console.log(`✅ CacheManager: Cleared compiled WASM cache entry ${cacheKey}`);
                     resolve(true);
                 };
             };
@@ -1653,7 +1655,7 @@ class CacheManager {
     async clearAll() {
         if (!this.ready) await this.init();
         
-        console.log('ðŸ—‘ï¸ CacheManager: Clearing all cache data...');
+        console.log('🗑️ CacheManager: Clearing all cache data...');
         
         const transaction = this.db.transaction(['sourceFiles', 'compiledWasm', 'metadata'], 'readwrite');
         
@@ -1673,12 +1675,12 @@ class CacheManager {
         ];
         
         await Promise.all(promises);
-        console.log('âœ… CacheManager: All cache data cleared');
+        console.log('✅ CacheManager: All cache data cleared');
     }
 }
 
 // Export for use in other modules
-window.CacheManager = CacheManager; 
+GoScriptGlobal.CacheManager = CacheManager; 
 
 
 
@@ -1752,7 +1754,7 @@ class ToolchainLoader {
                 };
             });
         } catch (e) {
-            console.warn('ðŸ“¦ ToolchainLoader: IndexedDB not available, skipping cache');
+            console.warn('📦 ToolchainLoader: IndexedDB not available, skipping cache');
             return null;
         }
     }
@@ -1782,7 +1784,7 @@ class ToolchainLoader {
                 };
             });
         } catch (e) {
-            console.warn('ðŸ“¦ ToolchainLoader: Failed to cache pack:', e.message);
+            console.warn('📦 ToolchainLoader: Failed to cache pack:', e.message);
         }
     }
 
@@ -1810,7 +1812,7 @@ class ToolchainLoader {
                 };
             });
         } catch (e) {
-            console.warn('ðŸ“¦ ToolchainLoader: Failed to delete cached pack:', e.message);
+            console.warn('📦 ToolchainLoader: Failed to delete cached pack:', e.message);
         }
     }
 
@@ -1821,19 +1823,19 @@ class ToolchainLoader {
      */
     async load(url = 'assets/goscript.pack') {
         // Try to load from IndexedDB cache first
-        console.log('ðŸ“¦ ToolchainLoader: Checking cache for GoScript toolchain...');
+        console.log('📦 ToolchainLoader: Checking cache for GoScript toolchain...');
         const cached = await this.getCached(url);
         
         if (cached) {
-            console.log(`âœ… ToolchainLoader: Loaded from cache (${(cached.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+            console.log(`✅ ToolchainLoader: Loaded from cache (${(cached.byteLength / 1024 / 1024).toFixed(2)} MB)`);
             try {
                 this.packData = cached;
                 this.parseToolchain();
                 this.loaded = true;
-                console.log(`âœ… ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+                console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
                 return;
             } catch (error) {
-                console.warn(`âš ï¸ ToolchainLoader: Cached goscript.pack is invalid, deleting cache entry for ${url}`);
+                console.warn(`⚠️ ToolchainLoader: Cached goscript.pack is invalid, deleting cache entry for ${url}`);
                 await this.deleteCache(url);
                 this.resetState();
 
@@ -1857,7 +1859,7 @@ class ToolchainLoader {
      * @returns {Promise<void>}
      */
     async downloadAndParse(url) {
-        console.log('ðŸ“¦ ToolchainLoader: Downloading GoScript toolchain (single file)...');
+        console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
 
         let response;
         try {
@@ -1877,7 +1879,7 @@ class ToolchainLoader {
             throw new Error(`Failed to read goscript.pack from ${url}. The download did not complete successfully. ${error.message}`);
         }
 
-        console.log(`ðŸ“¦ ToolchainLoader: Downloaded ${(packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
+        console.log(`📦 ToolchainLoader: Downloaded ${(packData.byteLength / 1024 / 1024).toFixed(2)} MB`);
 
         try {
             this.packData = packData;
@@ -1888,12 +1890,12 @@ class ToolchainLoader {
         }
 
         // Cache only after validation succeeds.
-        console.log('ðŸ’¾ ToolchainLoader: Caching toolchain for future use...');
+        console.log('💾 ToolchainLoader: Caching toolchain for future use...');
         await this.setCache(url, packData);
-        console.log('âœ… ToolchainLoader: Toolchain cached successfully');
+        console.log('✅ ToolchainLoader: Toolchain cached successfully');
 
         this.loaded = true;
-        console.log(`âœ… ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+        console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
     }
 
     /**
@@ -1915,13 +1917,13 @@ class ToolchainLoader {
             throw this.buildInvalidPackError(cacheKey, packData, error, false);
         }
 
-        console.log(`ðŸ“¦ ToolchainLoader: Imported local goscript.pack (${(packData.byteLength / 1024 / 1024).toFixed(2)} MB)`);
-        console.log('ðŸ’¾ ToolchainLoader: Caching imported toolchain for future use...');
+        console.log(`📦 ToolchainLoader: Imported local goscript.pack (${(packData.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+        console.log('💾 ToolchainLoader: Caching imported toolchain for future use...');
         await this.setCache(cacheKey, packData);
-        console.log('âœ… ToolchainLoader: Imported toolchain cached successfully');
+        console.log('✅ ToolchainLoader: Imported toolchain cached successfully');
 
         this.loaded = true;
-        console.log(`âœ… ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
+        console.log(`✅ ToolchainLoader: Ready (compiler: ${(this.compilerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, linker: ${(this.linkerWasm.byteLength / 1024 / 1024).toFixed(1)} MB, ${this.packageIndex.size} packages)`);
     }
 
     /**
@@ -1942,12 +1944,12 @@ class ToolchainLoader {
                 };
                 request.onsuccess = () => {
                     db.close();
-                    console.log('ðŸ—‘ï¸ ToolchainLoader: Cache cleared');
+                    console.log('🗑️ ToolchainLoader: Cache cleared');
                     resolve();
                 };
             });
         } catch (e) {
-            console.warn('ðŸ“¦ ToolchainLoader: Failed to clear cache:', e.message);
+            console.warn('📦 ToolchainLoader: Failed to clear cache:', e.message);
         }
     }
 
@@ -2084,14 +2086,14 @@ class ToolchainLoader {
         offset += 4;
         this.compilerWasm = this.packData.slice(offset, offset + compilerSize);
         offset += compilerSize;
-        console.log(`ðŸ“¦ ToolchainLoader: Compiler extracted (${(compilerSize / 1024 / 1024).toFixed(2)} MB)`);
+        console.log(`📦 ToolchainLoader: Compiler extracted (${(compilerSize / 1024 / 1024).toFixed(2)} MB)`);
         
         // === Section 2: Linker WASM ===
         const linkerSize = view.getUint32(offset, true);
         offset += 4;
         this.linkerWasm = this.packData.slice(offset, offset + linkerSize);
         offset += linkerSize;
-        console.log(`ðŸ“¦ ToolchainLoader: Linker extracted (${(linkerSize / 1024 / 1024).toFixed(2)} MB)`);
+        console.log(`📦 ToolchainLoader: Linker extracted (${(linkerSize / 1024 / 1024).toFixed(2)} MB)`);
         
         // === Section 3: Package Index (JSON) ===
         const indexSize = view.getUint32(offset, true);
@@ -2100,7 +2102,7 @@ class ToolchainLoader {
         const indexJson = new TextDecoder().decode(indexBytes);
         this.packageNames = JSON.parse(indexJson);
         offset += indexSize;
-        console.log(`ðŸ“¦ ToolchainLoader: Package index loaded (${this.packageNames.length} packages)`);
+        console.log(`📦 ToolchainLoader: Package index loaded (${this.packageNames.length} packages)`);
         
         // === Section 4: Stdlib Packages ===
         const packageCount = view.getUint32(offset, true);
@@ -2188,7 +2190,7 @@ class ToolchainLoader {
      * @param {VirtualFileSystem} vfs - Virtual filesystem to load into
      */
     loadAllPackagesIntoVFS(vfs) {
-        console.log('ðŸ“‚ ToolchainLoader: Extracting packages to virtual filesystem...');
+        console.log('📂 ToolchainLoader: Extracting packages to virtual filesystem...');
         
         let loaded = 0;
         let totalBytes = 0;
@@ -2199,7 +2201,7 @@ class ToolchainLoader {
             totalBytes += entry.size;
         }
         
-        console.log(`âœ… ToolchainLoader: Extracted ${loaded} packages (${(totalBytes / 1024 / 1024).toFixed(1)} MB) to /pkg/js_wasm/`);
+        console.log(`✅ ToolchainLoader: Extracted ${loaded} packages (${(totalBytes / 1024 / 1024).toFixed(1)} MB) to /pkg/js_wasm/`);
     }
 
     /**
@@ -2223,7 +2225,7 @@ class ToolchainLoader {
 }
 
 // Export for use in other modules
-window.ToolchainLoader = ToolchainLoader;
+GoScriptGlobal.ToolchainLoader = ToolchainLoader;
 
 
 
@@ -2261,7 +2263,7 @@ class CompilationManager {
     init(vfs, cacheManager) {
         this.vfs = vfs;
         this.cacheManager = cacheManager;
-        console.log('âš¡ CompilationManager: Initialized with VFS and CacheManager');
+        console.log('⚡ CompilationManager: Initialized with VFS and CacheManager');
     }
 
     /**
@@ -2299,7 +2301,7 @@ class CompilationManager {
             const cachedWasm = await this.cacheManager.getCachedWasm(sourceHash);
             
             if (cachedWasm) {
-                console.log('ðŸŽ¯ CompilationManager: Using cached WASM binary');
+                console.log('🎯 CompilationManager: Using cached WASM binary');
                 this.emitStageUpdate(2, 'complete');
                 this.emitProgress(100, 'CACHED_BINARY_LOADED');
                 this.status = 'complete';
@@ -2358,13 +2360,13 @@ class CompilationManager {
      * @private
      */
     async loadCompiler() {
-        console.log('ðŸ”§ CompilationManager: Loading GoScript toolchain...');
+        console.log('🔧 CompilationManager: Loading GoScript toolchain...');
         
         try {
             // Try to use packed toolchain first (single file with everything)
-            if (window.ToolchainLoader) {
-                console.log('ðŸ“¦ Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
-                this.toolchainLoader = new window.ToolchainLoader();
+            if (GoScriptGlobal.ToolchainLoader) {
+                console.log('📦 Using packed goscript.pack (compiler + linker + stdlib in 1 file)');
+                this.toolchainLoader = new GoScriptGlobal.ToolchainLoader();
                 await this.toolchainLoader.load(this.toolchainUrl);
                 
                 // Extract compiler and linker
@@ -2378,18 +2380,18 @@ class CompilationManager {
                 this.toolchainLoader.loadAllPackagesIntoVFS(this.vfs);
                 
                 const stats = this.toolchainLoader.getStats();
-                console.log(`âœ… CompilationManager: Toolchain ready (${(stats.packSize / 1024 / 1024).toFixed(1)} MB total)`);
+                console.log(`✅ CompilationManager: Toolchain ready (${(stats.packSize / 1024 / 1024).toFixed(1)} MB total)`);
                 
                 this.compilerLoaded = true;
                 return;
             }
             
             // Fallback: Load compiler and linker separately
-            console.log('âš ï¸ ToolchainLoader not available, loading files separately...');
+            console.log('⚠️ ToolchainLoader not available, loading files separately...');
             await this.loadCompilerSeparately();
             
         } catch (error) {
-            console.error('âŒ CompilationManager: Failed to load packed toolchain:', error);
+            console.error('❌ CompilationManager: Failed to load packed toolchain:', error);
             // Fall back to separate loading
             await this.loadCompilerSeparately();
         }
@@ -2411,7 +2413,7 @@ class CompilationManager {
             if (!linkResp.ok) throw new Error(`Failed to fetch link.wasm: ${linkResp.status}`);
             this.linkWasmBytes = await linkResp.arrayBuffer();
             
-            console.log(`ðŸ“¦ CompilationManager: Loaded compiler (${(this.compileWasmBytes.byteLength / 1024 / 1024).toFixed(2)} MB) and linker (${(this.linkWasmBytes.byteLength / 1024 / 1024).toFixed(2)} MB)`);
+            console.log(`📦 CompilationManager: Loaded compiler (${(this.compileWasmBytes.byteLength / 1024 / 1024).toFixed(2)} MB) and linker (${(this.linkWasmBytes.byteLength / 1024 / 1024).toFixed(2)} MB)`);
             
             // Set up filesystem interface for the compiler
             this.setupCompilerFilesystem();
@@ -2420,10 +2422,10 @@ class CompilationManager {
             await this.loadStdLib();
 
             this.compilerLoaded = true;
-            console.log('âœ… CompilationManager: Go compiler WASM loaded and ready');
+            console.log('✅ CompilationManager: Go compiler WASM loaded and ready');
             
         } catch (error) {
-            console.error('âŒ CompilationManager: Failed to load Go compiler:', error);
+            console.error('❌ CompilationManager: Failed to load Go compiler:', error);
             throw error;
         }
     }
@@ -2433,27 +2435,27 @@ class CompilationManager {
      * @private
      */
     async loadStdLib() {
-        console.log('ðŸ“š CompilationManager: Loading Go standard library...');
+        console.log('📚 CompilationManager: Loading Go standard library...');
         
         try {
             // Try to use packed stdlib first
-            if (window.StdLibLoader) {
-                console.log('ðŸ“¦ Using packed stdlib.pack (340 packages in 1 file)');
-                this.stdlibLoader = new window.StdLibLoader();
+            if (GoScriptGlobal.StdLibLoader) {
+                console.log('📦 Using packed stdlib.pack (340 packages in 1 file)');
+                this.stdlibLoader = new GoScriptGlobal.StdLibLoader();
                 await this.stdlibLoader.load('static/pkg/stdlib.pack');
                 this.stdlibLoader.loadAllIntoVFS(this.vfs);
                 
                 const stats = this.stdlibLoader.getStats();
-                console.log(`âœ… CompilationManager: Standard library ready (${stats.packageCount} packages, ${(stats.packSize / 1024 / 1024).toFixed(1)} MB)`);
+                console.log(`✅ CompilationManager: Standard library ready (${stats.packageCount} packages, ${(stats.packSize / 1024 / 1024).toFixed(1)} MB)`);
                 return;
             }
             
             // Fallback to individual package loading
-            console.log('âš ï¸ Packed stdlib not available, loading 340 packages individually (slower)...');
+            console.log('⚠️ Packed stdlib not available, loading 340 packages individually (slower)...');
             await this.loadStdLibIndividual();
             
         } catch (error) {
-            console.error('âŒ CompilationManager: Failed to load packed stdlib:', error);
+            console.error('❌ CompilationManager: Failed to load packed stdlib:', error);
             // Fall back to individual loading
             await this.loadStdLibIndividual();
         }
@@ -2464,14 +2466,14 @@ class CompilationManager {
      * @private
      */
     async loadStdLibIndividual() {
-        console.log('ðŸ“š CompilationManager: Loading standard library individually...');
+        console.log('📚 CompilationManager: Loading standard library individually...');
         
         try {
             const indexResp = await fetch('static/pkg/index.json');
             if (!indexResp.ok) throw new Error("Failed to load package index");
             const packages = await indexResp.json();
             
-            console.log(`ðŸ“š CompilationManager: Found ${packages.length} packages in index`);
+            console.log(`📚 CompilationManager: Found ${packages.length} packages in index`);
 
             const loadPackage = async (pkg) => {
                 try {
@@ -2491,9 +2493,9 @@ class CompilationManager {
                 await Promise.all(batch.map(loadPackage));
             }
             
-            console.log('âœ… CompilationManager: Standard library loaded');
+            console.log('✅ CompilationManager: Standard library loaded');
         } catch (error) {
-            console.error('âŒ CompilationManager: Failed to load standard library:', error);
+            console.error('❌ CompilationManager: Failed to load standard library:', error);
             // Fallback to minimal set if index fails
             await this.loadMinimalStdLib();
         }
@@ -2512,7 +2514,7 @@ class CompilationManager {
      * @private
      */
     async setupBuildEnvironment() {
-        console.log('ðŸ—ï¸ CompilationManager: Setting up build environment...');
+        console.log('🏗️ CompilationManager: Setting up build environment...');
         
         // Create build directories
         this.vfs.mkdir('/tmp');
@@ -2523,7 +2525,7 @@ class CompilationManager {
         const buildConfig = this.generateBuildConfig();
         this.vfs.writeFile('/build/config.json', JSON.stringify(buildConfig, null, 2));
         
-        console.log('âœ… CompilationManager: Build environment ready');
+        console.log('✅ CompilationManager: Build environment ready');
     }
 
     /**
@@ -2531,23 +2533,23 @@ class CompilationManager {
      * @private
      */
     async compileToWasm() {
-        console.log('ðŸ”¥ CompilationManager: Compiling Go to WASM using real Go compiler...');
+        console.log('🔥 CompilationManager: Compiling Go to WASM using real Go compiler...');
         
         const moduleInfo = this.vfs.getModuleInfo();
         const goFiles = this.vfs.getGoFiles();
         
-        console.log(`ðŸ“¦ CompilationManager: Module: ${moduleInfo.name}`);
-        console.log(`ðŸ“ CompilationManager: Compiling ${goFiles.length} Go files`);
+        console.log(`📦 CompilationManager: Module: ${moduleInfo.name}`);
+        console.log(`📝 CompilationManager: Compiling ${goFiles.length} Go files`);
         
         if (this.compileWasmBytes && this.linkWasmBytes) {
             try {
                 // Use the real Go compiler WASM
                 const wasmBinary = await this.runGoCompiler();
-                console.log(`âœ… CompilationManager: Real WASM compiled (${wasmBinary.byteLength} bytes)`);
+                console.log(`✅ CompilationManager: Real WASM compiled (${wasmBinary.byteLength} bytes)`);
                 return wasmBinary;
                 
             } catch (error) {
-                console.warn(`âš ï¸ CompilationManager: Real compiler failed: ${error.message}`);
+                console.warn(`⚠️ CompilationManager: Real compiler failed: ${error.message}`);
                 console.error(error);
                 if (!this.allowMockFallback) {
                     throw error;
@@ -2564,7 +2566,7 @@ class CompilationManager {
         await this.delay(compilationTime);
         
         const mockWasm = this.generateMockWasm();
-        console.log(`âœ… CompilationManager: Mock WASM compiled (${mockWasm.byteLength} bytes)`);
+        console.log(`✅ CompilationManager: Mock WASM compiled (${mockWasm.byteLength} bytes)`);
         return mockWasm;
     }
 
@@ -2573,7 +2575,7 @@ class CompilationManager {
      * @private
      */
     async prepareBinary(wasmBinary) {
-        console.log('ðŸŽ¯ CompilationManager: Preparing binary for execution...');
+        console.log('🎯 CompilationManager: Preparing binary for execution...');
         
         // Validate WASM binary
         if (!this.validateWasmBinary(wasmBinary)) {
@@ -2583,7 +2585,7 @@ class CompilationManager {
         // Store in VFS for access
         this.vfs.writeFile('/output/main.wasm', wasmBinary);
         
-        console.log('âœ… CompilationManager: Binary prepared for execution');
+        console.log('✅ CompilationManager: Binary prepared for execution');
     }
 
     /**
@@ -2669,14 +2671,14 @@ class CompilationManager {
      * @private
      */
     setupCompilerFilesystem() {
-        console.log('ðŸ—‚ï¸ CompilationManager: Setting up compiler filesystem interface...');
+        console.log('🗂️ CompilationManager: Setting up compiler filesystem interface...');
         
-        if (window.FSPolyfill) {
-            const polyfill = new window.FSPolyfill(this.vfs);
+        if (GoScriptGlobal.FSPolyfill) {
+            const polyfill = new GoScriptGlobal.FSPolyfill(this.vfs);
             polyfill.patch();
-            console.log('âœ… CompilationManager: Filesystem interface patched');
+            console.log('✅ CompilationManager: Filesystem interface patched');
         } else {
-            console.warn('âš ï¸ CompilationManager: FSPolyfill not found');
+            console.warn('⚠️ CompilationManager: FSPolyfill not found');
         }
     }
 
@@ -2685,7 +2687,7 @@ class CompilationManager {
      * @private
      */
     async runGoCompiler() {
-        console.log('âš™ï¸ CompilationManager: Invoking real Go compiler...');
+        console.log('⚙️ CompilationManager: Invoking real Go compiler...');
 
         if (typeof Go === 'undefined') {
             throw new Error('wasm_exec.js is not loaded');
@@ -2705,16 +2707,16 @@ class CompilationManager {
             tempFiles.push(tempPath);
         }
         
-        console.log(`ðŸ“ CompilationManager: Compiling ${tempFiles.length} file(s): ${tempFiles.join(', ')}`);
+        console.log(`📝 CompilationManager: Compiling ${tempFiles.length} file(s): ${tempFiles.join(', ')}`);
         
         // Debug: Check what's in VFS
-        console.log('ðŸ“¦ VFS Stats:', this.vfs.getStats());
-        console.log('ðŸ“¦ pkg/js_wasm contents:', this.vfs.listDir('/pkg/js_wasm').slice(0, 10));
+        console.log('📦 VFS Stats:', this.vfs.getStats());
+        console.log('📦 pkg/js_wasm contents:', this.vfs.listDir('/pkg/js_wasm').slice(0, 10));
         
         // Capture compiler output
         let compilerOutput = [];
-        const originalAddConsoleOutput = window.addConsoleOutput;
-        window.addConsoleOutput = (text) => {
+        const originalAddConsoleOutput = GoScriptGlobal.addConsoleOutput;
+        GoScriptGlobal.addConsoleOutput = (text) => {
             compilerOutput.push(text);
             console.log('[COMPILER]', text);
             if (originalAddConsoleOutput) originalAddConsoleOutput(text);
@@ -2723,8 +2725,8 @@ class CompilationManager {
         try {
             // 1. Compile (cmd/compile)
             // go tool compile -o main.o -p main main.go ...
-            console.log('âš™ï¸ CompilationManager: Running compile...');
-            console.log('âš™ï¸ Args:', ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles]);
+            console.log('⚙️ CompilationManager: Running compile...');
+            console.log('⚙️ Args:', ['compile', '-o', '/tmp/main.o', '-p', 'main', '-I', '/pkg/js_wasm', ...tempFiles]);
             const goCompile = new Go();
             goCompile.exitCode = 0;
             const originalCompileExit = goCompile.exit.bind(goCompile);
@@ -2751,7 +2753,7 @@ class CompilationManager {
                 throw new Error(`Compilation failed: ${errorMsg}`);
             }
         } finally {
-            window.addConsoleOutput = originalAddConsoleOutput;
+            GoScriptGlobal.addConsoleOutput = originalAddConsoleOutput;
         }
         
         // Check if main.o exists
@@ -2762,7 +2764,7 @@ class CompilationManager {
         
         // 2. Link (cmd/link)
         // go tool link -o main.wasm main.o
-        console.log('âš™ï¸ CompilationManager: Running link...');
+        console.log('⚙️ CompilationManager: Running link...');
         const goLink = new Go();
         goLink.exitCode = 0;
         const originalLinkExit = goLink.exit.bind(goLink);
@@ -2836,13 +2838,13 @@ class CompilationManager {
     cancel() {
         if (this.status === 'compiling') {
             this.status = 'cancelled';
-            console.log('ðŸ›‘ CompilationManager: Compilation cancelled');
+            console.log('🛑 CompilationManager: Compilation cancelled');
         }
     }
 }
 
 // Export for use in other modules
-window.CompilationManager = CompilationManager; 
+GoScriptGlobal.CompilationManager = CompilationManager; 
 
 
 
@@ -2878,8 +2880,8 @@ class AppRunner {
      * @private
      */
     setupFsPolyfill() {
-        if (!window.fs) window.fs = {};
-        const baseFs = window.fs;
+        if (!GoScriptGlobal.fs) GoScriptGlobal.fs = {};
+        const baseFs = GoScriptGlobal.fs;
         const originalWriteSync = typeof baseFs.writeSync === 'function' ? baseFs.writeSync.bind(baseFs) : null;
         const originalWrite = typeof baseFs.write === 'function' ? baseFs.write.bind(baseFs) : null;
         const originalOpen = typeof baseFs.open === 'function' ? baseFs.open.bind(baseFs) : null;
@@ -2892,7 +2894,7 @@ class AppRunner {
             }
         };
 
-        window.fs.writeSync = (fd, buf) => {
+        GoScriptGlobal.fs.writeSync = (fd, buf) => {
             if (fd === 1 || fd === 2) {
                 writeToOutput(buf);
                 return buf.length;
@@ -2905,7 +2907,7 @@ class AppRunner {
             return buf.length;
         };
         
-        window.fs.write = (fd, buf, offset, length, position, callback) => {
+        GoScriptGlobal.fs.write = (fd, buf, offset, length, position, callback) => {
             if (fd === 1 || fd === 2) {
                 writeToOutput(buf.subarray(offset, offset + length));
                 callback(null, length);
@@ -2920,7 +2922,7 @@ class AppRunner {
             callback(null, length);
         };
         
-        window.fs.open = (path, flags, mode, callback) => {
+        GoScriptGlobal.fs.open = (path, flags, mode, callback) => {
             if (originalOpen) {
                 originalOpen(path, flags, mode, callback);
                 return;
@@ -2935,14 +2937,14 @@ class AppRunner {
      * @returns {Promise<void>}
      */
     async init() {
-        console.log('ðŸš€ AppRunner: Initializing WASM execution environment...');
+        console.log('🚀 AppRunner: Initializing WASM execution environment...');
         
         // Initialize Go runtime if wasm_exec.js is loaded
         if (typeof Go !== 'undefined') {
             this.go = new Go();
-            console.log('âœ… AppRunner: Go runtime initialized');
+            console.log('✅ AppRunner: Go runtime initialized');
         } else {
-            console.warn('âš ï¸ AppRunner: wasm_exec.js not loaded, using mock runtime');
+            console.warn('⚠️ AppRunner: wasm_exec.js not loaded, using mock runtime');
         }
     }
 
@@ -2955,7 +2957,7 @@ class AppRunner {
      */
     async execute(wasmBinary, metadata = {}, mountElementId = 'root') {
         try {
-            console.log(`ðŸŽ¯ AppRunner: Executing WASM binary (${wasmBinary.byteLength} bytes)`);
+            console.log(`🎯 AppRunner: Executing WASM binary (${wasmBinary.byteLength} bytes)`);
             
             this.mountPoint = document.getElementById(mountElementId);
             if (!this.mountPoint) {
@@ -2972,10 +2974,10 @@ class AppRunner {
             await this.runWasmApplication();
             
             this.isRunning = true;
-            console.log('âœ… AppRunner: Application running successfully');
+            console.log('✅ AppRunner: Application running successfully');
             
         } catch (error) {
-            console.error('âŒ AppRunner: Execution failed:', error.message);
+            console.error('❌ AppRunner: Execution failed:', error.message);
             this.showError(error.message);
             throw error;
         }
@@ -2989,7 +2991,7 @@ class AppRunner {
      */
     async executeConsole(wasmBinary, sourceCode = null) {
         try {
-            console.log(`ðŸŽ¯ AppRunner: Executing Console WASM binary (${wasmBinary.byteLength} bytes)`);
+            console.log(`🎯 AppRunner: Executing Console WASM binary (${wasmBinary.byteLength} bytes)`);
             
             // Check if this is a mock WASM (small size indicates mock)
             const isMock = wasmBinary.byteLength < 10000;
@@ -2999,7 +3001,7 @@ class AppRunner {
                     throw new Error('Mock WASM execution is disabled');
                 }
                 // For mock WASM, simulate the output based on source code
-                console.log('ðŸŽ­ AppRunner: Using mock execution (compiler not available)');
+                console.log('🎭 AppRunner: Using mock execution (compiler not available)');
                 await this.executeMockConsole(sourceCode);
                 return;
             }
@@ -3020,10 +3022,10 @@ class AppRunner {
             await this.runWasmApplication(true);
             
             this.isRunning = true;
-            console.log('âœ… AppRunner: Console application finished');
+            console.log('✅ AppRunner: Console application finished');
             
         } catch (error) {
-            console.error('âŒ AppRunner: Console execution failed:', error.message);
+            console.error('❌ AppRunner: Console execution failed:', error.message);
             throw error;
         }
     }
@@ -3128,7 +3130,7 @@ class AppRunner {
      * @private
      */
     async loadWasmModule(wasmBinary) {
-        console.log('ðŸ“¦ AppRunner: Loading WASM module...');
+        console.log('📦 AppRunner: Loading WASM module...');
         
         if (this.go) {
             // Use actual Go runtime
@@ -3136,12 +3138,12 @@ class AppRunner {
                 this.wasmModule = await WebAssembly.instantiate(wasmBinary, this.go.importObject);
                 this.wasmInstance = this.wasmModule.instance;
                 this.usingMockRuntime = false;
-                console.log('âœ… AppRunner: WASM module loaded with Go runtime');
+                console.log('✅ AppRunner: WASM module loaded with Go runtime');
             } catch (error) {
                 if (!this.allowMockExecution) {
                     throw error;
                 }
-                console.warn('âš ï¸ AppRunner: Go runtime failed, falling back to mock');
+                console.warn('⚠️ AppRunner: Go runtime failed, falling back to mock');
                 await this.loadMockModule(wasmBinary);
             }
         } else {
@@ -3158,7 +3160,7 @@ class AppRunner {
      * @private
      */
     async loadMockModule(wasmBinary) {
-        console.log('ðŸŽ­ AppRunner: Loading mock WASM module...');
+        console.log('🎭 AppRunner: Loading mock WASM module...');
         
         // Simulate WASM loading
         await this.delay(500);
@@ -3175,7 +3177,7 @@ class AppRunner {
         
         this.wasmInstance = this.wasmModule.instance;
         this.usingMockRuntime = true;
-        console.log('âœ… AppRunner: Mock WASM module loaded');
+        console.log('✅ AppRunner: Mock WASM module loaded');
     }
 
     /**
@@ -3183,7 +3185,7 @@ class AppRunner {
      * @private
      */
     setupDOMEnvironment() {
-        console.log('ðŸŒ AppRunner: Setting up DOM environment...');
+        console.log('🌐 AppRunner: Setting up DOM environment...');
         
         // Clear mount point
         this.mountPoint.innerHTML = '';
@@ -3192,14 +3194,14 @@ class AppRunner {
         this.injectApplicationCSS();
         
         // Setup global objects that Go WASM might expect
-        if (!window.fs) {
-            window.fs = {
+        if (!GoScriptGlobal.fs) {
+            GoScriptGlobal.fs = {
                 writeSync: () => {},
                 write: () => {}
             };
         }
         
-        console.log('âœ… AppRunner: DOM environment ready');
+        console.log('✅ AppRunner: DOM environment ready');
     }
 
     /**
@@ -3207,7 +3209,7 @@ class AppRunner {
      * @private
      */
     async runWasmApplication(isConsole = false) {
-        console.log('â–¶ï¸ AppRunner: Starting WASM application...');
+        console.log('▶️ AppRunner: Starting WASM application...');
         
         if (this.usingMockRuntime) {
             if (!isConsole) {
@@ -3215,7 +3217,7 @@ class AppRunner {
                 return;
             }
 
-            console.warn('âš ï¸ AppRunner: Mock application skipped in console mode');
+            console.warn('⚠️ AppRunner: Mock application skipped in console mode');
             return;
         }
 
@@ -3233,7 +3235,7 @@ class AppRunner {
             if (!isConsole) {
                 this.renderMockApplication();
             } else {
-                console.warn('âš ï¸ AppRunner: Mock application skipped in console mode');
+                console.warn('⚠️ AppRunner: Mock application skipped in console mode');
             }
         }
     }
@@ -3243,53 +3245,53 @@ class AppRunner {
      * @private
      */
     renderMockApplication() {
-        console.log('ðŸŽ­ AppRunner: Rendering mock application...');
+        console.log('🎭 AppRunner: Rendering mock application...');
         
         this.mountPoint.innerHTML = `
             <div class="mock-app">
                 <header class="app-header">
-                    <h1>ðŸŽ‰ Personal Website 2025</h1>
-                    <p>Compiled from Go to WASM â€¢ Running in Browser</p>
+                    <h1>🎉 Personal Website 2025</h1>
+                    <p>Compiled from Go to WASM • Running in Browser</p>
                 </header>
                 
                 <main class="app-content">
                     <div class="welcome-section">
-                        <h2>âœ¨ Welcome to the Future of Web Development</h2>
+                        <h2>✨ Welcome to the Future of Web Development</h2>
                         <p>This website was compiled from Go source code directly in your browser using WebAssembly!</p>
                     </div>
                     
                     <div class="features-grid">
                         <div class="feature-card">
-                            <h3>ðŸš€ Real-time Compilation</h3>
+                            <h3>🚀 Real-time Compilation</h3>
                             <p>Go source code fetched from GitHub and compiled to WASM instantly</p>
                         </div>
                         
                         <div class="feature-card">
-                            <h3>ðŸ’¾ Smart Caching</h3>
+                            <h3>💾 Smart Caching</h3>
                             <p>IndexedDB caching with commit-hash based invalidation</p>
                         </div>
                         
                         <div class="feature-card">
-                            <h3>ðŸŒ No Server Required</h3>
+                            <h3>🌐 No Server Required</h3>
                             <p>Everything runs in your browser - no backend needed</p>
                         </div>
                         
                         <div class="feature-card">
-                            <h3>âš¡ Lightning Fast</h3>
+                            <h3>⚡ Lightning Fast</h3>
                             <p>WebAssembly performance with Go's simplicity</p>
                         </div>
                     </div>
                     
                     <div class="demo-section">
-                        <h3>ðŸŽ¯ Interactive Demo</h3>
-                        <button onclick="window.appRunner.handleDemoClick()" class="demo-button">
+                        <h3>🎯 Interactive Demo</h3>
+                        <button onclick="globalThis.appRunner.handleDemoClick()" class="demo-button">
                             Click me! (Handled by Go WASM)
                         </button>
                         <div id="demo-output" class="demo-output"></div>
                     </div>
                     
                     <div class="tech-stack">
-                        <h3>ðŸ› ï¸ Technology Stack</h3>
+                        <h3>🛠️ Technology Stack</h3>
                         <div class="tech-tags">
                             <span class="tech-tag">Go 1.21</span>
                             <span class="tech-tag">WebAssembly</span>
@@ -3302,14 +3304,14 @@ class AppRunner {
                 </main>
                 
                 <footer class="app-footer">
-                    <p>ðŸ”§ Compiled ${new Date().toLocaleString()}</p>
-                    <p>ðŸ’š Powered by Go WebAssembly</p>
+                    <p>🔧 Compiled ${new Date().toLocaleString()}</p>
+                    <p>💚 Powered by Go WebAssembly</p>
                 </footer>
             </div>
         `;
         
         // Make the app runner globally accessible for demo interactions
-        window.appRunner = this;
+        GoScriptGlobal.appRunner = this;
     }
 
     /**
@@ -3318,17 +3320,17 @@ class AppRunner {
     handleDemoClick() {
         const output = document.getElementById('demo-output');
         const responses = [
-            'Hello from Go WASM! ðŸ‘‹',
-            'This interaction was handled by compiled Go code! ðŸš€',
-            'WebAssembly + Go = Amazing performance! âš¡',
-            'Your browser is now running Go! ðŸŽ‰',
-            'Fiber framework responding from WASM! ðŸŒ'
+            'Hello from Go WASM! 👋',
+            'This interaction was handled by compiled Go code! 🚀',
+            'WebAssembly + Go = Amazing performance! ⚡',
+            'Your browser is now running Go! 🎉',
+            'Fiber framework responding from WASM! 🌐'
         ];
         
         const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-        output.innerHTML = `<p>ðŸŽ¯ ${randomResponse}</p>`;
+        output.innerHTML = `<p>🎯 ${randomResponse}</p>`;
         
-        console.log('ðŸŽ­ AppRunner: Demo interaction handled');
+        console.log('🎭 AppRunner: Demo interaction handled');
     }
 
     /**
@@ -3478,10 +3480,10 @@ class AppRunner {
             this.mountPoint.innerHTML = `
                 <div style="display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #0a0a0f; color: #f8fafc; font-family: 'Inter', sans-serif;">
                     <div style="text-align: center; padding: 2rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 1rem;">
-                        <h2 style="color: #ef4444; margin-bottom: 1rem;">âŒ Application Error</h2>
+                        <h2 style="color: #ef4444; margin-bottom: 1rem;">❌ Application Error</h2>
                         <p style="color: #cbd5e1; margin-bottom: 1rem;">${message}</p>
-                        <button onclick="window.location.reload()" style="background: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; cursor: pointer;">
-                            ðŸ”„ Reload Page
+                        <button onclick="globalThis.location.reload()" style="background: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; cursor: pointer;">
+                            🔄 Reload Page
                         </button>
                     </div>
                 </div>
@@ -3494,14 +3496,14 @@ class AppRunner {
      */
     stop() {
         if (this.isRunning) {
-            console.log('ðŸ›‘ AppRunner: Stopping application...');
+            console.log('🛑 AppRunner: Stopping application...');
             this.isRunning = false;
             
             if (this.mountPoint) {
                 this.mountPoint.innerHTML = '';
             }
             
-            console.log('âœ… AppRunner: Application stopped');
+            console.log('✅ AppRunner: Application stopped');
         }
     }
 
@@ -3528,7 +3530,7 @@ class AppRunner {
 }
 
 // Export for use in other modules
-window.AppRunner = AppRunner;
+GoScriptGlobal.AppRunner = AppRunner;
 
 
 
@@ -3612,8 +3614,8 @@ class GoScript {
             this.lastSourceFiles = sourceFiles;
 
             // Set up output capture
-            const originalAddConsoleOutput = window.addConsoleOutput;
-            window.addConsoleOutput = (text) => {
+            const originalAddConsoleOutput = GoScriptGlobal.addConsoleOutput;
+            GoScriptGlobal.addConsoleOutput = (text) => {
                 this.options.onOutput(text);
                 if (originalAddConsoleOutput) originalAddConsoleOutput(text);
             };
@@ -3633,7 +3635,7 @@ class GoScript {
                     size: wasmBinary.byteLength
                 };
             } finally {
-                window.addConsoleOutput = originalAddConsoleOutput;
+                GoScriptGlobal.addConsoleOutput = originalAddConsoleOutput;
             }
 
         } catch (error) {
@@ -3754,7 +3756,7 @@ class GoScript {
         this.lastWasmBinary = null;
         this.lastSourceFiles = null;
         this.vfs = new VirtualFileSystem();
-        if (window.FSPolyfill) {
+        if (GoScriptGlobal.FSPolyfill) {
             const polyfill = new FSPolyfill(this.vfs);
             polyfill.patch();
         }
@@ -3794,7 +3796,7 @@ class GoScript {
         this.compilationManager.init(this.vfs, this.cacheManager);
         this.compilationManager.toolchainUrl = packUrl;
 
-        if (window.FSPolyfill) {
+        if (GoScriptGlobal.FSPolyfill) {
             const polyfill = new FSPolyfill(this.vfs);
             polyfill.patch();
         }
@@ -3824,5 +3826,5 @@ class GoScript {
 }
 
 // Export globally for use in HTML
-window.GoScript = GoScript;
+GoScriptGlobal.GoScript = GoScript;
 

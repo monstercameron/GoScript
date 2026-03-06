@@ -23,7 +23,7 @@ At a high level, GoScript does this:
 
 The standard library is not recompiled on every run. It is prebuilt and loaded as `.a` archives, which is the only reason the browser version is practical at all.
 
-## Why This Is Compiler-Nerd Interesting
+## Why The Compiler Details Matter
 
 - It preserves the real compile/link split instead of pretending `go build` is a single opaque step.
 - It feeds the compiler a filesystem and package archive layout close to what the Go toolchain expects.
@@ -71,8 +71,15 @@ npm run build
 
 The public JavaScript entry point is `GoScript`. Full API details are in [reference/SDK.md](reference/SDK.md).
 
+```bash
+npm install goscript
+```
+
 ```javascript
+import GoScript from 'goscript';
+
 const gs = new GoScript({
+    packUrl: '/assets/goscript.pack',
     onOutput: (text) => console.log(text)
 });
 
@@ -81,6 +88,12 @@ await gs.init();
 const { wasm } = await gs.compile(code);
 await gs.run(wasm);
 ```
+
+Notes:
+
+- The package ships the JavaScript runtime and the Go `wasm_exec.js` shim.
+- You still need to host `goscript.pack` yourself and pass its URL with `packUrl`.
+- For script-tag usage, keep using `dist/goscript.bundle.js`.
 
 ## Repository Layout
 
@@ -93,6 +106,7 @@ The current source layout is intentionally flat:
 
 Supporting docs:
 
+- [reference/GETTING-STARTED.md](reference/GETTING-STARTED.md)
 - [reference/SDK.md](reference/SDK.md)
 - [reference/PACK-FORMAT.md](reference/PACK-FORMAT.md)
 

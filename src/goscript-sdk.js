@@ -78,8 +78,8 @@ class GoScript {
             this.lastSourceFiles = sourceFiles;
 
             // Set up output capture
-            const originalAddConsoleOutput = window.addConsoleOutput;
-            window.addConsoleOutput = (text) => {
+            const originalAddConsoleOutput = GoScriptGlobal.addConsoleOutput;
+            GoScriptGlobal.addConsoleOutput = (text) => {
                 this.options.onOutput(text);
                 if (originalAddConsoleOutput) originalAddConsoleOutput(text);
             };
@@ -99,7 +99,7 @@ class GoScript {
                     size: wasmBinary.byteLength
                 };
             } finally {
-                window.addConsoleOutput = originalAddConsoleOutput;
+                GoScriptGlobal.addConsoleOutput = originalAddConsoleOutput;
             }
 
         } catch (error) {
@@ -220,7 +220,7 @@ class GoScript {
         this.lastWasmBinary = null;
         this.lastSourceFiles = null;
         this.vfs = new VirtualFileSystem();
-        if (window.FSPolyfill) {
+        if (GoScriptGlobal.FSPolyfill) {
             const polyfill = new FSPolyfill(this.vfs);
             polyfill.patch();
         }
@@ -260,7 +260,7 @@ class GoScript {
         this.compilationManager.init(this.vfs, this.cacheManager);
         this.compilationManager.toolchainUrl = packUrl;
 
-        if (window.FSPolyfill) {
+        if (GoScriptGlobal.FSPolyfill) {
             const polyfill = new FSPolyfill(this.vfs);
             polyfill.patch();
         }
@@ -290,4 +290,4 @@ class GoScript {
 }
 
 // Export globally for use in HTML
-window.GoScript = GoScript;
+GoScriptGlobal.GoScript = GoScript;
