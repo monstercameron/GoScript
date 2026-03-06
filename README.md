@@ -67,6 +67,13 @@ npm run build
 
 `npm run fetch:pack` downloads `docs/assets/goscript.pack` from the GitHub release asset instead of storing the 168 MB toolchain blob in Git history.
 
+Release links:
+
+- Release page: `https://github.com/monstercameron/GoScript/releases/tag/demo`
+- Direct compiler pack download: `https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack`
+
+If you are wiring GoScript into another app, that direct `goscript.pack` URL is the file you need to download and host on your own origin.
+
 ## SDK
 
 The public JavaScript entry point is `GoScript`. Full API details are in [reference/SDK.md](reference/SDK.md).
@@ -90,6 +97,7 @@ Notes:
 
 - The package ships the JavaScript runtime and the Go `wasm_exec.js` shim.
 - You still need to host `goscript.pack` yourself and pass its URL with `packUrl`.
+- The published compiler pack is here: `https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack`
 - For script-tag usage, keep using `dist/goscript.bundle.js`.
 
 ## Repository Layout

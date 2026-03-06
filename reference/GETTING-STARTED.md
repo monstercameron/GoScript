@@ -24,6 +24,13 @@ You must host the compiler pack yourself, for example at:
 
 Then pass that URL into `GoScript` with `packUrl`.
 
+Published download links:
+
+- Release page: `https://github.com/monstercameron/GoScript/releases/tag/demo`
+- Direct `goscript.pack` download: `https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack`
+
+If you just need the compiler pack file, use that direct `goscript.pack` URL, then place the file in your app's public/static assets folder.
+
 ## Install
 
 ```bash
