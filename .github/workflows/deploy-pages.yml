@@ -1,0 +1,79 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PACK_TAG: ${{ vars.GOSCRIPT_PACK_TAG || 'demo' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK and styles
+        run: |
+          npm run build
+          npm run css
+
+      - name: Assemble Pages artifact
+        shell: bash
+        run: |
+          rm -rf site
+          mkdir -p site/scripts site/assets
+          cp -R docs/. site/
+          cp dist/goscript.bundle.js site/scripts/goscript.bundle.js
+          cp dist/goscript.bundle.min.js site/scripts/goscript.bundle.min.js
+          cp dist/goscript.js site/scripts/goscript.js
+          cp dist/goscript.min.js site/scripts/goscript.min.js
+          touch site/.nojekyll
+
+      - name: Download toolchain pack from release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$PACK_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern goscript.pack \
+            --dir site/assets
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1479,8 +1479,8 @@ func main() {
             
             try {
                 gs = new GoScript({
-                    // Use corsproxy.io to fetch GitHub release (adds CORS headers)
-                    packUrl: 'https://corsproxy.io/?' + encodeURIComponent('https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack'),
+                    // Served as a same-origin asset by the Pages deploy workflow
+                    packUrl: 'assets/goscript.pack',
                     debug: true,
                     onProgress: (pct, msg) => {
                         // Silent init - no progress bar animation

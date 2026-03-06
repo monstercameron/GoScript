@@ -60,3 +60,4 @@ coverage/
 .cache/
 static/*
 goscript.pack
+docs/assets/goscript.pack
