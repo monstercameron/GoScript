@@ -44,6 +44,7 @@ jobs:
           rm -rf site
           mkdir -p site/scripts site/assets
           cp -R docs/. site/
+          rm -f site/assets/goscript.pack
           cp dist/goscript.bundle.js site/scripts/goscript.bundle.js
           cp dist/goscript.bundle.min.js site/scripts/goscript.bundle.min.js
           cp dist/goscript.js site/scripts/goscript.js
@@ -57,7 +58,8 @@ jobs:
           gh release download "$PACK_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --pattern goscript.pack \
-            --dir site/assets
+            --dir site/assets \
+            --clobber
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
