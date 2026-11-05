@@ -1,0 +1,24 @@
+{
+  "files": [
+    "main.go",
+    "app.go",
+    "handlers.go",
+    "model.go",
+    "priority.go",
+    "dates.go",
+    "store.go",
+    "history.go",
+    "query.go",
+    "stats.go",
+    "storage.go",
+    "seed.go",
+    "events.go",
+    "dom.go",
+    "view_shell.go",
+    "view_tasks.go",
+    "view_sidebar.go",
+    "toast.go",
+    "shortcuts.go",
+    "style.go"
+  ]
+}

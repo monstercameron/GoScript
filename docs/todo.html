@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoScript - Simple Todo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/output.css">
+    <link rel="stylesheet" href="styles/site.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/go/go.min.js"></script>
+</head>
+<body class="page-shell">
+    <div class="page-orb page-orb-a"></div>
+    <div class="page-orb page-orb-b"></div>
+    <div class="page-grid"></div>
+
+    <div class="page-frame">
+        <nav class="site-nav" aria-label="Site">
+            <span class="site-nav-brand">GoScript</span>
+            <a class="site-tab" href="index.html">Playground</a>
+            <a class="site-tab" href="todo.html" aria-current="page">Simple Todo</a>
+            <a class="site-tab" href="todo-advanced.html">Advanced Todo</a>
+        </nav>
+
+        <header class="hero-panel">
+            <div class="hero-copy">
+                <div class="hero-kicker">Ship .go files, not JavaScript</div>
+                <h1 class="hero-title">Simple Todo</h1>
+                <p class="hero-description">
+                    This page ships a disabled HTML skeleton and three plain-text <code>.go</code> files.
+                    On load, GoScript fetches the source, compiles and links it with the real Go toolchain
+                    in your browser, runs the WebAssembly, and only then does the Go program attach every
+                    event listener and enable the controls.
+                </p>
+            </div>
+        </header>
+
+        <section class="card-surface" aria-labelledby="pipeline-title">
+            <h2 id="pipeline-title" class="card-title">Page-load pipeline</h2>
+            <p class="card-sub">Each step runs in your browser, in order. The page has no JavaScript for the todo logic.</p>
+            <ol class="stages" id="stages">
+                <li class="stage" data-stage="fetch" data-state="pending"><span class="stage-name">Fetch .go sources</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="toolchain" data-state="pending"><span class="stage-name">Load Go toolchain</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="compile" data-state="pending"><span class="stage-name">Compile &amp; link</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="run" data-state="pending"><span class="stage-name">Run the WASM</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="listeners" data-state="pending"><span class="stage-name">Go attaches listeners</span><span class="stage-detail">waiting</span></li>
+            </ol>
+            <pre class="build-error" id="build-error" role="alert"></pre>
+        </section>
+
+        <section class="todo-shell" id="todo-app" aria-label="Todo app">
+            <div class="boot-overlay" id="boot-overlay" role="status" aria-live="polite">
+                <div class="boot-spinner"></div>
+                <strong id="boot-title">Building the app from Go source...</strong>
+                <span id="boot-detail" class="card-sub" style="margin:0">Starting</span>
+            </div>
+
+            <h2>Todo</h2>
+            <div class="todo-form">
+                <input id="todo-input" type="text" placeholder="What needs doing?" autocomplete="off" aria-label="New todo" disabled>
+                <button id="todo-add" type="button" disabled>Add</button>
+            </div>
+
+            <ul id="todo-list" class="todo-list"></ul>
+            <p id="todo-empty" class="todo-empty">Nothing here. Add a task above.</p>
+
+            <div class="todo-footer">
+                <span id="todo-count">0 items left</span>
+                <div class="todo-filters" role="group" aria-label="Filter">
+                    <button id="filter-all" type="button" aria-pressed="true" disabled>All</button>
+                    <button id="filter-active" type="button" aria-pressed="false" disabled>Active</button>
+                    <button id="filter-completed" type="button" aria-pressed="false" disabled>Completed</button>
+                </div>
+                <button id="todo-clear" class="todo-clear" type="button" disabled>Clear completed</button>
+            </div>
+            <p id="go-stats" class="go-stats" aria-live="polite">Waiting for Go...</p>
+        </section>
+        <p style="text-align:center;margin:0 0 22px">
+            <button class="reset-link" id="reset-data" type="button">Reset saved todos and reload</button>
+        </p>
+
+        <section class="card-surface" id="compile-stats" data-example="todo" aria-label="Compile time"></section>
+
+        <section class="card-surface" aria-labelledby="src-title">
+            <h2 id="src-title" class="card-title">The Go source that was compiled</h2>
+            <p class="card-sub">These are the exact text files fetched from <code>go/todo/</code> and compiled in this page.</p>
+            <div class="src-tabs" id="src-tabs" role="tablist" aria-label="Go source files"></div>
+            <pre class="src-view" id="src-view" tabindex="0" aria-live="polite">Loading...</pre>
+            <p class="src-meta" id="src-meta"></p>
+        </section>
+
+        <section class="card-surface" id="size-compare" data-example="todo" aria-label="Size comparison"></section>
+
+        <section class="info-banner">
+            <strong>How it works:</strong>
+            <code>main.go</code>, <code>todo.go</code> and <code>dom.go</code> use <code>syscall/js</code> to talk to the DOM.
+            Because the program ends in <code>select {}</code>, the Go runtime stays alive and its
+            <code>js.Func</code> callbacks keep handling clicks and key presses. See the
+            <a href="todo-advanced.html">Advanced Todo</a> for a 20-file version.
+        </section>
+    </div>
+
+    <script src="scripts/motion.js"></script>
+    <script src="scripts/compile-stats.js"></script>
+    <script src="scripts/goscript.bundle.js"></script>
+    <script src="scripts/todo-loader.js"></script>
+    <script src="scripts/size-compare.js"></script>
+    <script>
+        TodoDemo.start({
+            sourceDir: 'go/todo/',
+            files: ['main.go', 'todo.go', 'dom.go'],
+            packUrl: 'assets/goscript.pack.gz?v=go1.27.3',
+            exampleId: 'todo',
+            storageKeys: ['goscript.todo.v1']
+        });
+    </script>
+</body>
+</html>

@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles/output.css">
+    <link rel="stylesheet" href="styles/site.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
@@ -21,6 +22,12 @@
     <div class="page-grid"></div>
 
     <div class="page-frame">
+        <nav class="site-nav" aria-label="Site">
+            <span class="site-nav-brand">GoScript</span>
+            <a class="site-tab" href="index.html" aria-current="page">Playground</a>
+            <a class="site-tab" href="todo.html">Simple Todo</a>
+            <a class="site-tab" href="todo-advanced.html">Advanced Todo</a>
+        </nav>
         <header class="hero-panel reveal reveal-1">
             <div class="hero-copy">
                 <div class="hero-kicker">Browser-hosted Go toolchain</div>
@@ -188,7 +195,7 @@ func main() {
     <script src="scripts/goscript.bundle.js"></script>
     <script>
         window.GoScriptPlaygroundConfig = {
-            packUrl: 'assets/goscript.pack.gz',
+            packUrl: 'assets/goscript.pack.gz?v=go1.27.3',
             debug: true,
             releasePackUrl: 'https://github.com/monstercameron/GoScript/releases/download/demo/goscript.pack'
         };

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoScript - Advanced Todo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/output.css">
+    <link rel="stylesheet" href="styles/site.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/go/go.min.js"></script>
+</head>
+<body class="page-shell">
+    <div class="page-orb page-orb-a"></div>
+    <div class="page-orb page-orb-b"></div>
+    <div class="page-grid"></div>
+
+    <div class="page-frame">
+        <nav class="site-nav" aria-label="Site">
+            <span class="site-nav-brand">GoScript</span>
+            <a class="site-tab" href="index.html">Playground</a>
+            <a class="site-tab" href="todo.html">Simple Todo</a>
+            <a class="site-tab" href="todo-advanced.html" aria-current="page">Advanced Todo</a>
+        </nav>
+
+        <header class="hero-panel">
+            <div class="hero-copy">
+                <div class="hero-kicker">20 Go files, zero JavaScript</div>
+                <h1 class="hero-title">Advanced Todo</h1>
+                <p class="hero-description">
+                    A full task manager written entirely in Go: projects, tags, priorities, due dates,
+                    a search language, undo and redo, statistics, keyboard shortcuts, and JSON import and export.
+                    The HTML page contains only an empty <code>&lt;div id="app-root"&gt;</code>. Go builds the interface,
+                    injects its own CSS, and attaches every listener after it is compiled in your browser.
+                </p>
+            </div>
+        </header>
+
+        <section class="card-surface" aria-labelledby="pipeline-title">
+            <h2 id="pipeline-title" class="card-title">Page-load pipeline</h2>
+            <p class="card-sub">All 20 files are fetched as text, then compiled and linked together by the Go toolchain running in this page.</p>
+            <ol class="stages" id="stages">
+                <li class="stage" data-stage="fetch" data-state="pending"><span class="stage-name">Fetch .go sources</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="toolchain" data-state="pending"><span class="stage-name">Load Go toolchain</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="compile" data-state="pending"><span class="stage-name">Compile &amp; link</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="run" data-state="pending"><span class="stage-name">Run the WASM</span><span class="stage-detail">waiting</span></li>
+                <li class="stage" data-stage="listeners" data-state="pending"><span class="stage-name">Go attaches listeners</span><span class="stage-detail">waiting</span></li>
+            </ol>
+            <pre class="build-error" id="build-error" role="alert"></pre>
+        </section>
+
+        <div class="adv-stage" id="todo-app">
+            <div class="boot-overlay" id="boot-overlay" role="status" aria-live="polite">
+                <div class="boot-spinner"></div>
+                <strong id="boot-title">Building the app from Go source...</strong>
+                <span id="boot-detail" class="card-sub" style="margin:0">Starting</span>
+            </div>
+            <div id="app-root"></div>
+        </div>
+        <p style="text-align:center;margin:12px 0 22px">
+            <button class="reset-link" id="reset-data" type="button">Reset saved data and reload</button>
+        </p>
+
+        <section class="card-surface" id="compile-stats" data-example="todo-pro" aria-label="Compile time"></section>
+
+        <section class="card-surface" aria-labelledby="src-title">
+            <h2 id="src-title" class="card-title">The 20 Go files that were compiled</h2>
+            <p class="card-sub">The exact text files fetched from <code>go/todo-pro/</code>. Pick one to read it.</p>
+            <div class="src-tabs" id="src-tabs" role="tablist" aria-label="Go source files"></div>
+            <pre class="src-view" id="src-view" tabindex="0" aria-live="polite">Loading...</pre>
+            <p class="src-meta" id="src-meta"></p>
+        </section>
+
+        <section class="card-surface" id="size-compare" data-example="todo-pro" aria-label="Size comparison"></section>
+
+        <section class="info-banner">
+            <strong>Try the search box:</strong>
+            <code>tag:work priority:high</code>, <code>due:overdue</code>, <code>is:done</code>,
+            <code>project:learning-go</code>, or plain words. Click a task title to edit it, a tag to filter by it,
+            and press <code>Ctrl+Z</code> to undo any change (including deleting or importing).
+        </section>
+    </div>
+
+    <script src="scripts/motion.js"></script>
+    <script src="scripts/compile-stats.js"></script>
+    <script src="scripts/goscript.bundle.js"></script>
+    <script src="scripts/todo-loader.js"></script>
+    <script src="scripts/size-compare.js"></script>
+    <script>
+        TodoDemo.start({
+            sourceDir: 'go/todo-pro/',
+            manifest: 'go/todo-pro/manifest.json',
+            packUrl: 'assets/goscript.pack.gz?v=go1.27.3',
+            exampleId: 'todo-pro',
+            storageKeys: ['goscript.todo.pro']
+        });
+    </script>
+</body>
+</html>

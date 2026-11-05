@@ -1,0 +1,161 @@
+{
+  "generatedAt": "2026-11-05T02:42:51Z",
+  "goVersion": "go1.27.3 windows/amd64",
+  "compiler": {
+    "packRaw": 210700402,
+    "packGzip": 47567839,
+    "packBrotli": 31312242,
+    "compileWasmRaw": 53637338,
+    "linkWasmRaw": 12493342
+  },
+  "runtimeJs": {
+    "goscriptBundleMin": {
+      "raw": 73051,
+      "gzip": 18063,
+      "brotli": 15779
+    },
+    "wasmExec": {
+      "raw": 17567,
+      "gzip": 4404,
+      "brotli": 3771
+    }
+  },
+  "examples": [
+    {
+      "id": "todo",
+      "name": "Simple todo",
+      "fileCount": 3,
+      "files": [
+        {
+          "name": "dom.go",
+          "bytes": 2819
+        },
+        {
+          "name": "main.go",
+          "bytes": 2468
+        },
+        {
+          "name": "todo.go",
+          "bytes": 3711
+        }
+      ],
+      "source": {
+        "raw": 8998,
+        "gzip": 3836,
+        "brotli": 3280
+      },
+      "wasmDefault": {
+        "raw": 4531710,
+        "gzip": 1241842,
+        "brotli": 915365
+      },
+      "wasmStripped": {
+        "raw": 4449259,
+        "gzip": 1218634,
+        "brotli": 903586
+      }
+    },
+    {
+      "id": "todo-pro",
+      "name": "Advanced todo",
+      "fileCount": 20,
+      "files": [
+        {
+          "name": "app.go",
+          "bytes": 1657
+        },
+        {
+          "name": "dates.go",
+          "bytes": 1579
+        },
+        {
+          "name": "dom.go",
+          "bytes": 2607
+        },
+        {
+          "name": "events.go",
+          "bytes": 1098
+        },
+        {
+          "name": "handlers.go",
+          "bytes": 5232
+        },
+        {
+          "name": "history.go",
+          "bytes": 1357
+        },
+        {
+          "name": "main.go",
+          "bytes": 363
+        },
+        {
+          "name": "model.go",
+          "bytes": 2451
+        },
+        {
+          "name": "priority.go",
+          "bytes": 1375
+        },
+        {
+          "name": "query.go",
+          "bytes": 4598
+        },
+        {
+          "name": "seed.go",
+          "bytes": 1804
+        },
+        {
+          "name": "shortcuts.go",
+          "bytes": 1190
+        },
+        {
+          "name": "stats.go",
+          "bytes": 1458
+        },
+        {
+          "name": "storage.go",
+          "bytes": 4737
+        },
+        {
+          "name": "store.go",
+          "bytes": 5687
+        },
+        {
+          "name": "style.go",
+          "bytes": 8400
+        },
+        {
+          "name": "toast.go",
+          "bytes": 467
+        },
+        {
+          "name": "view_shell.go",
+          "bytes": 5327
+        },
+        {
+          "name": "view_sidebar.go",
+          "bytes": 2931
+        },
+        {
+          "name": "view_tasks.go",
+          "bytes": 2871
+        }
+      ],
+      "source": {
+        "raw": 57189,
+        "gzip": 22513,
+        "brotli": 19573
+      },
+      "wasmDefault": {
+        "raw": 4878957,
+        "gzip": 1325854,
+        "brotli": 977294
+      },
+      "wasmStripped": {
+        "raw": 4792804,
+        "gzip": 1302109,
+        "brotli": 961526
+      }
+    }
+  ]
+}
