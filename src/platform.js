@@ -1194,6 +1194,53 @@ async function gunzipIfNeeded(buffer) {
     return new Response(stream).arrayBuffer();
 }
 
+const PACK_CACHE_NAME = 'goscript-toolchain-v1';
+
+/**
+ * Fetch the pack through Cache Storage so it is downloaded once and reused on
+ * later visits, independent of the host's HTTP cache headers (GitHub Pages only
+ * allows short ones). The compressed bytes are stored as served. The cache key
+ * is the full URL, so changing a `?v=` query string fetches a new pack and
+ * deletes older versions of the same file. Any Cache Storage failure falls back
+ * to a plain fetch.
+ * @param {string} url - Pack URL
+ * @returns {Promise<Response>}
+ */
+async function fetchPackCached(url) {
+    if (typeof caches === 'undefined') {
+        return fetch(url);
+    }
+    try {
+        const absoluteUrl = new URL(url, location.href).href;
+        const cache = await caches.open(PACK_CACHE_NAME);
+        const cachedResponse = await cache.match(absoluteUrl);
+        if (cachedResponse) {
+            console.log('📦 ToolchainLoader: Using toolchain from Cache Storage');
+            return cachedResponse;
+        }
+
+        const response = await fetch(absoluteUrl);
+        if (response.ok) {
+            try {
+                await cache.put(absoluteUrl, response.clone());
+                const current = new URL(absoluteUrl);
+                for (const request of await cache.keys()) {
+                    const other = new URL(request.url);
+                    if (other.pathname === current.pathname && other.href !== current.href) {
+                        await cache.delete(request);
+                    }
+                }
+            } catch (storeError) {
+                console.warn('📦 ToolchainLoader: Could not store the pack in Cache Storage:', storeError.message);
+            }
+        }
+        return response;
+    } catch (cacheError) {
+        console.warn('📦 ToolchainLoader: Cache Storage unavailable, fetching directly:', cacheError.message);
+        return fetch(url);
+    }
+}
+
 class ToolchainLoader {
     constructor() {
         this.packData = null;
@@ -1382,7 +1429,7 @@ class ToolchainLoader {
     async downloadAndParse(url) {
         console.log('📦 ToolchainLoader: Downloading GoScript toolchain (single file)...');
 
-        const [response, fetchError] = await promiseToResult(fetch(url), `Failed to fetch goscript.pack from ${url}`);
+        const [response, fetchError] = await promiseToResult(fetchPackCached(url), `Failed to fetch goscript.pack from ${url}`);
         if (fetchError) {
             throw this.buildFetchError(url, fetchError);
         }

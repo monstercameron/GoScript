@@ -158,6 +158,7 @@ class GoScript {
         return {
             wasm: wasmBinary,
             compileTime: compileDurationMs,
+            timings: this.compilationManager.lastTimings || null,
             size: wasmBinary.byteLength
         };
     }

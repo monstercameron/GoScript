@@ -53,6 +53,7 @@ class CompilationManager {
      */
     async compile(sourceFiles) {
         this.status = 'compiling';
+        this.timings = { stages: {}, startedAt: performance.now(), cacheHit: false };
         this.emitProgress(0, GoScriptEngineConstants.build.compileStartStatus);
 
         // Persist the exact compile input for cache hashing and temp file staging.
@@ -86,6 +87,7 @@ class CompilationManager {
         }
 
         if (cachedWasmEntry) {
+            this.timings.cacheHit = true;
             console.log('🎯 CompilationManager: Using cached WASM binary');
             this.emitStageUpdate(2, 'complete');
             this.emitProgress(100, GoScriptEngineConstants.build.cachedBinaryLoadedStatus);
@@ -570,6 +572,7 @@ class CompilationManager {
             console.log('⚙️ CompilationManager: Running compile...');
             console.log('⚙️ Args:', compileArgumentList);
 
+            this.markTiming('compileStart');
             const compileRuntimeProcess = new Go();
             compileRuntimeProcess.exitCode = 0;
             const originalExitHandler = compileRuntimeProcess.exit.bind(compileRuntimeProcess);
@@ -588,6 +591,7 @@ class CompilationManager {
             throw compileError;
         }
 
+        this.markTiming('compileEnd');
         console.log('Compile exit code:', compileResult);
         if (compileOutputLines.length > 0) {
             console.log('Compiler output:', compileOutputLines.join('\n'));
@@ -607,6 +611,7 @@ class CompilationManager {
         // The linker reads the object file written above from the VFS, so a missing
         // or partial main.o must fail here instead of being hidden by a later wasm error.
         console.log('⚙️ CompilationManager: Running link...');
+        this.markTiming('linkStart');
         const linkArgumentList = ['link', '-o', GoScriptEngineConstants.vfs.tempWasmPath, '-L', GoScriptEngineConstants.vfs.jsWasmPackagePath, GoScriptEngineConstants.vfs.tempObjectPath];
         const [linkExitCode, linkError] = await GoScriptEngineResult.captureAsyncResult(async () => {
             const linkRuntimeProcess = new Go();
@@ -623,6 +628,7 @@ class CompilationManager {
             await linkRuntimeProcess.run(linkerModuleRecord.instance);
             return linkRuntimeProcess.exitCode;
         }, 'Failed while running cmd/link');
+        this.markTiming('linkEnd');
         if (linkError) {
             throw linkError;
         }
@@ -653,7 +659,56 @@ class CompilationManager {
         }
     }
 
+    // ---- build timing capture: read it from lastTimings or the SDK compile() result ----
+    markTiming(key) {
+        if (!this.timings) {
+            this.timings = { stages: {}, startedAt: performance.now(), cacheHit: false };
+        }
+        this.timings[key] = performance.now();
+    }
+
+    recordStageTiming(stage, status) {
+        if (!this.timings) {
+            this.timings = { stages: {}, startedAt: performance.now(), cacheHit: false };
+        }
+        const names = {
+            1: 'loadCompiler', 2: 'cacheCheck', 3: 'loadSources', 4: 'buildEnvironment',
+            5: 'compileAndLink', 6: 'cacheWrite', 7: 'prepare'
+        };
+        const name = names[stage] || ('stage' + stage);
+        if (status === 'active') {
+            this.timings.stages[name] = { start: performance.now() };
+        } else if (status === 'complete' && this.timings.stages[name]) {
+            const entry = this.timings.stages[name];
+            entry.ms = Math.round((performance.now() - entry.start) * 10) / 10;
+        }
+    }
+
+    finalizeTimings() {
+        const t = this.timings;
+        if (!t) {
+            return;
+        }
+        const span = (from, to) => (t[from] != null && t[to] != null)
+            ? Math.round((t[to] - t[from]) * 10) / 10
+            : null;
+        const stages = {};
+        for (const [name, entry] of Object.entries(t.stages)) {
+            if (entry.ms != null) {
+                stages[name] = entry.ms;
+            }
+        }
+        this.lastTimings = {
+            cacheHit: t.cacheHit,
+            totalMs: Math.round((performance.now() - t.startedAt) * 10) / 10,
+            compilerMs: span('compileStart', 'compileEnd'),
+            linkerMs: span('linkStart', 'linkEnd'),
+            stages
+        };
+    }
+
     emitStageUpdate(stage, status) {
+        this.recordStageTiming(stage, status);
         if (this.callbacks.onStageUpdate) {
             this.callbacks.onStageUpdate(stage, status);
         }
@@ -666,6 +721,7 @@ class CompilationManager {
     }
 
     emitComplete(wasmBinary, metadata) {
+        this.finalizeTimings();
         if (this.callbacks.onComplete) {
             this.callbacks.onComplete(wasmBinary, metadata);
         }

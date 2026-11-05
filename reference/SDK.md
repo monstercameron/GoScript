@@ -161,6 +161,14 @@ const result = await gs.compile({
     wasm: ArrayBuffer;
     compileTime: number; // Milliseconds
     size: number;        // Bytes
+    timings: {           // null if unavailable
+        cacheHit: boolean;   // true = served from the compiled-wasm cache, no compiler run
+        totalMs: number;     // whole compile() call, fractional ms
+        compilerMs: number | null;  // cmd/compile only (null on a cache hit)
+        linkerMs: number | null;    // cmd/link only (null on a cache hit)
+        stages: Record<string, number>; // per-stage ms: cacheCheck, loadSources,
+                                        // buildEnvironment, compileAndLink, cacheWrite, prepare
+    } | null;
 }
 ```
 
