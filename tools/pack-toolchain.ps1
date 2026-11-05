@@ -147,3 +147,14 @@ Write-Host "  Stdlib:    $($packageIndex.Count) packages"
 Write-Host "  Total:     $sizeMB MB"
 Write-Host ""
 Write-Host "Output: $outputFile"
+
+# Also produce the gzip copy that GitHub Pages serves (the loader decompresses it in the browser)
+$assetsDir = Join-Path $scriptDir "..\docs\assets"
+New-Item -ItemType Directory -Force $assetsDir | Out-Null
+$gzPath = Join-Path $assetsDir "goscript.pack.gz"
+$inStream = [System.IO.File]::OpenRead($outputFile)
+$outStream = [System.IO.File]::Create($gzPath)
+$gzStream = New-Object System.IO.Compression.GZipStream($outStream, [System.IO.Compression.CompressionLevel]::Optimal)
+$inStream.CopyTo($gzStream)
+$gzStream.Close(); $outStream.Close(); $inStream.Close()
+Write-Host ("Wrote docs/assets/goscript.pack.gz ({0} MB)" -f [math]::Round((Get-Item $gzPath).Length / 1MB, 2))

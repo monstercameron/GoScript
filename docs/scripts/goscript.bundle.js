@@ -1842,6 +1842,28 @@ GoScriptGlobal.CacheManager = CacheManager;
  * Includes: compile.wasm, link.wasm, package index, and all stdlib packages
  */
 
+/**
+ * Decompress a gzip-compressed pack in the browser.
+ * Static hosts such as GitHub Pages serve `goscript.pack.gz` as an opaque file
+ * (no Content-Encoding), so it has to be decompressed here. Data that is not
+ * gzip (raw pack, or already decoded by the browser) is returned unchanged.
+ * @param {ArrayBuffer} buffer - Downloaded bytes
+ * @returns {Promise<ArrayBuffer>}
+ */
+async function gunzipIfNeeded(buffer) {
+    const header = new Uint8Array(buffer, 0, Math.min(2, buffer.byteLength));
+    const isGzip = header.length === 2 && header[0] === 0x1f && header[1] === 0x8b;
+    if (!isGzip) {
+        return buffer;
+    }
+    if (typeof DecompressionStream === 'undefined') {
+        throw new Error('This browser cannot decompress goscript.pack.gz (DecompressionStream is unavailable). Use a current Chrome, Edge, Firefox, or Safari.');
+    }
+    console.log('📦 ToolchainLoader: Decompressing gzip pack...');
+    const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).arrayBuffer();
+}
+
 class ToolchainLoader {
     constructor() {
         this.packData = null;
@@ -1935,7 +1957,7 @@ class ToolchainLoader {
         return new Promise((resolve, reject) => {
             const writeTransaction = databaseHandle.transaction(this.storeName, 'readwrite');
             const toolchainStore = writeTransaction.objectStore(this.storeName);
-            const putRequest = toolchainStore.put(data, url);
+            const putRequest = toolchainStore.put(data, url); writeTransaction.onabort = () => { databaseHandle.close(); console.warn('📦 ToolchainLoader: Could not cache pack (continuing without cache):', writeTransaction.error && writeTransaction.error.message); resolve(); };
             
             putRequest.onerror = () => {
                 databaseHandle.close();
@@ -2040,7 +2062,7 @@ class ToolchainLoader {
         }
 
         const [packData, packReadError] = await promiseToResult(
-            response.arrayBuffer(),
+            response.arrayBuffer().then(gunzipIfNeeded),
             `Failed to read goscript.pack from ${url}`
         );
         if (packReadError) {

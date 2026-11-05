@@ -165,3 +165,8 @@ console.log('  Total:     ' + sizeMB + ' MB');
 console.log('');
 console.log('Output: ' + outputFile);
 "
+
+# Also produce the gzip copy that GitHub Pages serves (the loader decompresses it in the browser)
+mkdir -p "$ROOT_DIR/docs/assets"
+gzip -9 -c "$OUTPUT_FILE" > "$ROOT_DIR/docs/assets/goscript.pack.gz"
+echo "Wrote docs/assets/goscript.pack.gz"

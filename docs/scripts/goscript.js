@@ -1350,7 +1350,7 @@ class ToolchainLoader {
         return new Promise((resolve, reject) => {
             const writeTransaction = databaseHandle.transaction(this.storeName, 'readwrite');
             const toolchainStore = writeTransaction.objectStore(this.storeName);
-            const putRequest = toolchainStore.put(data, url);
+            const putRequest = toolchainStore.put(data, url); writeTransaction.onabort = () => { databaseHandle.close(); console.warn('📦 ToolchainLoader: Could not cache pack (continuing without cache):', writeTransaction.error && writeTransaction.error.message); resolve(); };
             
             putRequest.onerror = () => {
                 databaseHandle.close();

@@ -51,15 +51,10 @@ jobs:
           cp dist/goscript.min.js site/scripts/goscript.min.js
           touch site/.nojekyll
 
-      - name: Download toolchain pack from release asset
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify bundled toolchain pack
         run: |
-          gh release download "$PACK_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern goscript.pack \
-            --dir site/assets \
-            --clobber
+          test -s site/assets/goscript.pack.gz || { echo "docs/assets/goscript.pack.gz is missing from the repo"; exit 1; }
+          ls -l site/assets
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

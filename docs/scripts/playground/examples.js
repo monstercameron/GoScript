@@ -1337,8 +1337,5 @@ func main() {
 }`
         };
 
-        // Alias for select (reserved word)
-        EXAMPLES['select'] = EXAMPLES.select_stmt;
-
-
+// Alias for select (reserved word)
 window.GoScriptExamples.select = window.GoScriptExamples.select_stmt;
