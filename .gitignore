@@ -61,3 +61,5 @@ coverage/
 static/*
 goscript.pack
 docs/assets/goscript.pack
+# Brotli copy of the pack, used only for size measurements (the site ships the .gz)
+goscript.pack.br

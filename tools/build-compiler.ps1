@@ -20,6 +20,6 @@ $wasmExecPath = Join-Path $goroot "lib\wasm\wasm_exec.js"
 if (-not (Test-Path $wasmExecPath)) {
     $wasmExecPath = Join-Path $goroot "misc\wasm\wasm_exec.js"
 }
-Copy-Item $wasmExecPath (Join-Path $projectRoot "src\runtime\wasm_exec.js") -Force
+Copy-Item $wasmExecPath (Join-Path $projectRoot "src\wasm_exec.js") -Force
 
 Write-Host "Done."
